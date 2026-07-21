@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
   CalendarDays,
+  Clapperboard,
   Film,
   Grid3X3,
   ImagePlus,
@@ -23,11 +24,15 @@ import { api } from '@/lib/api'
 import { uploadMediaFile } from '@/lib/media-upload'
 import {
   endLive,
+  enterPracticeAdmin,
+  goPublicAdminLive,
   listCreatorLives,
   pauseAdminLive,
   resumeAdminLive,
   scheduleLive,
+  setLatencyModeAdmin,
   startLive,
+  startPractice,
   startScheduledLive,
   type AgoraCreds,
   type LiveDto,
@@ -305,7 +310,14 @@ export function AdminCreatorDetail() {
   })
 
   const activeLive = useMemo(
-    () => lives.find((l) => l.status === 'LIVE') ?? null,
+    () =>
+      lives.find(
+        (l) =>
+          l.status === 'LIVE' ||
+          l.status === 'PRACTICE' ||
+          Boolean(l.isPractice) ||
+          Boolean(l.isPaused)
+      ) ?? null,
     [lives]
   )
 
@@ -581,6 +593,17 @@ export function AdminCreatorDetail() {
     onError: (e: Error) => setError(e.message),
   })
 
+  const practiceScheduled = useMutation({
+    mutationFn: (liveId: string) => enterPracticeAdmin(liveId),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
+      setHostCreds(res.agora)
+      setHostLive(res.live)
+      flash('Practice started — not visible to fans')
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
   const goLive = useMutation({
     mutationFn: () => {
       if (!liveTitle.trim()) throw new Error('Add a title for the live')
@@ -606,6 +629,46 @@ export function AdminCreatorDetail() {
       setHostCreds(res.agora)
       setHostLive(res.live)
       flash(`Live started — ${res.notified} subscriber(s) notified`)
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  const practiceLive = useMutation({
+    mutationFn: () => {
+      if (!liveTitle.trim()) throw new Error('Add a title for the live')
+      const price = Number(livePrice)
+      if (liveAccess === 'PAID' && (!Number.isFinite(price) || price <= 0)) {
+        throw new Error('Enter a valid price for a paid live')
+      }
+      const tip = Number(emojiPrice)
+      if (!Number.isFinite(tip) || tip <= 0) {
+        throw new Error('Enter a valid emoji price')
+      }
+      return startPractice(id, {
+        title: liveTitle.trim(),
+        description: liveDesc.trim() || null,
+        accessType: liveAccess,
+        emojiPrice: tip,
+        ...(liveAccess === 'PAID' ? { price } : {}),
+      })
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
+      setLiveOpen(false)
+      setHostCreds(res.agora)
+      setHostLive(res.live)
+      flash('Practice started — not visible to fans')
+    },
+    onError: (e: Error) => setError(e.message),
+  })
+
+  const goPublic = useMutation({
+    mutationFn: (liveId: string) => goPublicAdminLive(liveId),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
+      // Keep host Agora session — same channel; new creds would remount LiveRoom.
+      setHostLive(res.live)
+      flash(`Now public — ${res.notified} subscriber(s) notified`)
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -957,18 +1020,39 @@ export function AdminCreatorDetail() {
           </p>
           {activeLive ? (
             <div className="mt-3 flex items-center gap-3 rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2.5">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-                <span className="size-1.5 animate-pulse rounded-full bg-white" />
-                Live
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                  activeLive.isPractice || activeLive.status === 'PRACTICE'
+                    ? 'bg-amber-500 text-black'
+                    : activeLive.isPaused
+                      ? 'bg-amber-500 text-black'
+                      : 'bg-rose-600 text-white'
+                }`}
+              >
+                {activeLive.isPractice || activeLive.status === 'PRACTICE' ? (
+                  <>
+                    <Clapperboard className="size-3" />
+                    Practice
+                  </>
+                ) : activeLive.isPaused ? (
+                  'BRB'
+                ) : (
+                  <>
+                    <span className="size-1.5 animate-pulse rounded-full bg-white" />
+                    Live
+                  </>
+                )}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-white">
                   {activeLive.title}
                 </p>
                 <p className="text-[12px] text-white/50">
-                  {activeLive.accessType === 'PAID'
-                    ? `Paid · ${formatCurrency(activeLive.price ?? 0)}`
-                    : 'Free for subscribers'}
+                  {activeLive.isPractice || activeLive.status === 'PRACTICE'
+                    ? 'Warm-up — not visible to fans'
+                    : activeLive.accessType === 'PAID'
+                      ? `Paid · ${formatCurrency(activeLive.price ?? 0)}`
+                      : 'Free for subscribers'}
                 </p>
               </div>
               {hostCreds && hostLive?.id === activeLive.id ? (
@@ -1019,9 +1103,23 @@ export function AdminCreatorDetail() {
                     </div>
                     <button
                       type="button"
+                      onClick={() => practiceScheduled.mutate(live.id)}
+                      disabled={
+                        practiceScheduled.isPending ||
+                        startScheduled.isPending ||
+                        Boolean(activeLive)
+                      }
+                      className="rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1.5 text-[12px] font-bold text-amber-100 hover:bg-amber-500/20 disabled:opacity-50"
+                    >
+                      Practice
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => startScheduled.mutate(live.id)}
                       disabled={
-                        startScheduled.isPending || Boolean(activeLive)
+                        startScheduled.isPending ||
+                        practiceScheduled.isPending ||
+                        Boolean(activeLive)
                       }
                       className="rounded-full bg-rose-600 px-3 py-1.5 text-[12px] font-bold text-white hover:bg-rose-500 disabled:opacity-50"
                     >
@@ -1762,7 +1860,8 @@ export function AdminCreatorDetail() {
               </button>
             </div>
             <p className="mt-1 text-[13px] text-white/40">
-              All active subscribers get a live notification the moment you start.
+              Practice privately first, or go live and notify every active
+              subscriber.
             </p>
             <div className="mt-4 space-y-3">
               <div>
@@ -1835,13 +1934,24 @@ export function AdminCreatorDetail() {
                 </p>
               </div>
             </div>
-            <Button
-              className="mt-5 w-full"
-              disabled={goLive.isPending}
-              onClick={() => goLive.mutate()}
-            >
-              {goLive.isPending ? 'Starting…' : 'Start live'}
-            </Button>
+            <div className="mt-5 grid gap-2">
+              <Button
+                className="w-full"
+                disabled={goLive.isPending || practiceLive.isPending}
+                onClick={() => goLive.mutate()}
+              >
+                {goLive.isPending ? 'Starting…' : 'Start live'}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full border-amber-400/30 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20"
+                disabled={goLive.isPending || practiceLive.isPending}
+                onClick={() => practiceLive.mutate()}
+              >
+                <Clapperboard className="mr-1.5 size-4" />
+                {practiceLive.isPending ? 'Starting…' : 'Practice'}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1854,20 +1964,39 @@ export function AdminCreatorDetail() {
           emojiPrice={hostLive.emojiPrice}
           title={hostLive.title}
           subtitle={
-            hostLive.accessType === 'PAID'
-              ? `Paid live · ${formatCurrency(hostLive.price ?? 0)}`
-              : 'Free for subscribers'
+            hostLive.isPractice || hostLive.status === 'PRACTICE'
+              ? hostLive.scheduledAt
+                ? 'Practice for your premiere — fans can’t join yet'
+                : 'Practice mode — not visible to fans'
+              : hostLive.accessType === 'PAID'
+                ? `Paid live · ${formatCurrency(hostLive.price ?? 0)}`
+                : 'Free for subscribers'
           }
           initialPaused={Boolean(hostLive.isPaused)}
           initialBrbMessage={hostLive.brbMessage}
           initialBrbImageUrl={hostLive.brbImageUrl}
+          initialLatencyMode={
+            hostLive.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+          }
+          isPractice={
+            Boolean(hostLive.isPractice) || hostLive.status === 'PRACTICE'
+          }
           onLeave={() => {
             setHostCreds(null)
             setHostLive(null)
           }}
           onEnd={() => stopLive.mutate(hostLive.id)}
+          onGoPublic={
+            hostLive.isPractice || hostLive.status === 'PRACTICE'
+              ? async () => {
+                  const res = await goPublic.mutateAsync(hostLive.id)
+                  return { live: res.live }
+                }
+              : undefined
+          }
           onPause={(input) => pauseAdminLive(hostLive.id, input)}
           onResume={() => resumeAdminLive(hostLive.id)}
+          onSetLatency={(mode) => setLatencyModeAdmin(hostLive.id, mode)}
         />
       ) : null}
 

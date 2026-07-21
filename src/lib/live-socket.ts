@@ -26,6 +26,11 @@ export interface LiveBrbPayload {
   pausedAt: string | null
 }
 
+export interface LiveLatencyPayload {
+  liveId: string
+  latencyMode: 'ULTRA_LOW' | 'NORMAL'
+}
+
 function socketOrigin(): string {
   const api = process.env.NEXT_PUBLIC_API_URL ?? '/api'
   if (api.startsWith('http://') || api.startsWith('https://')) {
