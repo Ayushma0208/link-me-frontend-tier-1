@@ -19,9 +19,13 @@ export interface LiveDto {
   price: number | null
   emojiPrice: number | null
   currency: string
-  status: 'SCHEDULED' | 'LIVE' | 'ENDED'
+  status: 'SCHEDULED' | 'PRACTICE' | 'LIVE' | 'ENDED'
   /** Temporary A/V pause with BRB screen — session stays LIVE. */
   isPaused?: boolean
+  /** Private warm-up — host only, not visible to viewers. */
+  isPractice?: boolean
+  /** Host-controlled Agora audience latency for the session. */
+  latencyMode?: 'ULTRA_LOW' | 'NORMAL'
   brbMessage?: string | null
   brbImageUrl?: string | null
   pausedAt?: string | null
@@ -33,6 +37,8 @@ export interface LiveDto {
   createdAt: string
   creator?: LiveCreator
 }
+
+export type LiveLatencyMode = 'ULTRA_LOW' | 'NORMAL'
 
 export interface PauseLiveInput {
   message?: string
@@ -161,6 +167,49 @@ export function startLive(creatorId: string, input: StartLiveInput) {
   )
 }
 
+export function startPractice(creatorId: string, input: StartLiveInput) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/creators/${creatorId}/live/practice`,
+    { method: 'POST', body: JSON.stringify(input) }
+  )
+}
+
+export function goPublicAdminLive(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/live/${liveId}/go-public`,
+    { method: 'POST' }
+  )
+}
+
+export function startPracticeMine(input: StartLiveInput) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    '/creators/me/live/practice',
+    { method: 'POST', body: JSON.stringify(input) }
+  )
+}
+
+export function goPublicLive(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/creators/me/live/${liveId}/go-public`,
+    { method: 'POST' }
+  )
+}
+
+/** Scheduled premiere → private warm-up on the same session. */
+export function enterPracticeMine(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/creators/me/live/${liveId}/practice`,
+    { method: 'POST' }
+  )
+}
+
+export function enterPracticeAdmin(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/live/${liveId}/practice`,
+    { method: 'POST' }
+  )
+}
+
 export interface ScheduleLiveInput extends StartLiveInput {
   scheduledAt: string
 }
@@ -210,5 +259,19 @@ export function pauseAdminLive(liveId: string, input: PauseLiveInput = {}) {
 export function resumeAdminLive(liveId: string) {
   return api<{ live: LiveDto }>(`/admin/live/${liveId}/resume`, {
     method: 'POST',
+  })
+}
+
+export function setLatencyModeMine(liveId: string, mode: LiveLatencyMode) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/latency`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  })
+}
+
+export function setLatencyModeAdmin(liveId: string, mode: LiveLatencyMode) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/latency`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
   })
 }

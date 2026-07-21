@@ -36,6 +36,7 @@ interface LiveViewProps {
 type Phase =
   | 'loading'
   | 'scheduled'
+  | 'preparing'
   | 'subscribe'
   | 'payment'
   | 'granted'
@@ -106,10 +107,24 @@ export function LiveView({ liveId }: LiveViewProps) {
         setPhase('scheduled')
         return
       }
+      if (
+        message.toLowerCase().includes('preparing') ||
+        message.toLowerCase().includes('not public')
+      ) {
+        setPhase('preparing')
+        return
+      }
       try {
         const details = await getLive(liveId)
         setLive(details.live)
         setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
+        if (
+          details.live.status === 'PRACTICE' ||
+          details.live.isPractice
+        ) {
+          setPhase('preparing')
+          return
+        }
       } catch {
         // ignore
       }
@@ -135,6 +150,13 @@ export function LiveView({ liveId }: LiveViewProps) {
         setPhase('scheduled')
         return
       }
+      if (
+        details.live.status === 'PRACTICE' ||
+        Boolean(details.live.isPractice)
+      ) {
+        setPhase('preparing')
+        return
+      }
       await attemptJoin()
     } catch (err) {
       setError(
@@ -151,14 +173,33 @@ export function LiveView({ liveId }: LiveViewProps) {
   }, [bootstrap])
 
   useEffect(() => {
-    if (phase !== 'scheduled') return
-    const ticker = setInterval(() => setTick((t) => t + 1), 1000)
+    if (phase !== 'scheduled' && phase !== 'preparing') return
+    const ticker =
+      phase === 'scheduled'
+        ? setInterval(() => setTick((t) => t + 1), 1000)
+        : null
     const poll = setInterval(async () => {
       try {
         const details = await getLive(liveId)
-        if (phaseRef.current !== 'scheduled') return
+        if (
+          phaseRef.current !== 'scheduled' &&
+          phaseRef.current !== 'preparing'
+        ) {
+          return
+        }
         setLive(details.live)
         setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
+        if (
+          details.live.status === 'PRACTICE' ||
+          details.live.isPractice
+        ) {
+          if (phaseRef.current !== 'preparing') setPhase('preparing')
+          return
+        }
+        if (details.live.status === 'SCHEDULED') {
+          if (phaseRef.current !== 'scheduled') setPhase('scheduled')
+          return
+        }
         if (details.live.status === 'LIVE') {
           await attemptJoin()
         } else if (details.live.status === 'ENDED') {
@@ -169,7 +210,7 @@ export function LiveView({ liveId }: LiveViewProps) {
       }
     }, 5000)
     return () => {
-      clearInterval(ticker)
+      if (ticker) clearInterval(ticker)
       clearInterval(poll)
     }
   }, [phase, liveId, attemptJoin])
@@ -234,6 +275,8 @@ export function LiveView({ liveId }: LiveViewProps) {
   }
 
   function leave() {
+    setCreds(null)
+    setPhase('loading')
     router.push('/user')
   }
 
@@ -248,6 +291,9 @@ export function LiveView({ liveId }: LiveViewProps) {
         initialPaused={Boolean(live.isPaused)}
         initialBrbMessage={live.brbMessage}
         initialBrbImageUrl={live.brbImageUrl}
+        initialLatencyMode={
+          live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+        }
         onLeave={leave}
         onEnded={leave}
       />
@@ -264,6 +310,8 @@ export function LiveView({ liveId }: LiveViewProps) {
             <Lock className="size-6 text-white" />
           ) : phase === 'scheduled' ? (
             <CalendarClock className="size-6 text-white" />
+          ) : phase === 'preparing' ? (
+            <Loader2 className="size-6 animate-spin text-white" />
           ) : (
             <Radio className="size-6 text-white" />
           )}
@@ -329,6 +377,35 @@ export function LiveView({ liveId }: LiveViewProps) {
               {live.creator?.name ?? 'the creator'} starts.
             </p>
             {error ? <p className="text-[13px] text-rose-400">{error}</p> : null}
+            <button
+              type="button"
+              onClick={leave}
+              className="text-[13px] text-white/40 transition hover:text-white/70"
+            >
+              Go back
+            </button>
+          </div>
+        ) : null}
+
+        {phase === 'preparing' ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.16em] text-amber-300/80 uppercase">
+                Preparing
+              </p>
+              <h1 className="mt-1 text-lg font-bold text-white">
+                {live?.title ?? 'Live'}
+              </h1>
+              <p className="mt-1 text-[13px] text-white/50">
+                Creator is preparing — hang tight until they go public.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-[13px] text-white/70">
+                This warm-up is private. You&apos;ll be able to join once the
+                stream goes live to the audience.
+              </p>
+            </div>
             <button
               type="button"
               onClick={leave}

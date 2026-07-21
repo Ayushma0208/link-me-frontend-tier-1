@@ -2,13 +2,19 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarClock, Play, Radio, Square } from 'lucide-react'
+import { CalendarClock, Clapperboard, Play, Radio, Square } from 'lucide-react'
 
 import { LiveRoom } from '@/components/live/LiveRoom'
 import { StudioGlassCard } from '@/components/creator-studio/StudioGlassCard'
 import { StudioPageHeader } from '@/components/creator-studio/StudioPageHeader'
 import { api, ApiError } from '@/lib/api'
-import type { AgoraCreds, LiveDto } from '@/lib/live'
+import {
+  enterPracticeMine,
+  goPublicLive,
+  startPracticeMine,
+  type AgoraCreds,
+  type LiveDto,
+} from '@/lib/live'
 import { formatCurrency } from '@/lib/utils'
 
 type LiveResponse = { live: LiveDto; agora?: AgoraCreds; notified?: number }
@@ -64,6 +70,16 @@ export function LiveEventsStudio() {
     onError: handleError,
   })
 
+  const practiceLive = useMutation({
+    mutationFn: () => startPracticeMine(input),
+    onSuccess: (result) => {
+      setError(null)
+      void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
+      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+    },
+    onError: handleError,
+  })
+
   const scheduleLive = useMutation({
     mutationFn: () =>
       api<LiveResponse>('/creators/me/live/schedule', {
@@ -94,6 +110,16 @@ export function LiveEventsStudio() {
     onError: handleError,
   })
 
+  const practiceScheduled = useMutation({
+    mutationFn: (id: string) => enterPracticeMine(id),
+    onSuccess: (result) => {
+      setError(null)
+      void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
+      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+    },
+    onError: handleError,
+  })
+
   const endLive = useMutation({
     mutationFn: (id: string) =>
       api<LiveResponse>(`/creators/me/live/${id}/end`, { method: 'POST' }),
@@ -101,6 +127,18 @@ export function LiveEventsStudio() {
       setRoom(null)
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
+    },
+    onError: handleError,
+  })
+
+  const goPublic = useMutation({
+    mutationFn: (id: string) => goPublicLive(id),
+    onSuccess: (result) => {
+      setError(null)
+      void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
+      // Keep existing Agora creds — same channel; replacing them remounts
+      // LiveRoom and kills the host camera.
+      setRoom((prev) => (prev ? { ...prev, live: result.live } : prev))
     },
     onError: handleError,
   })
@@ -114,24 +152,45 @@ export function LiveEventsStudio() {
   }
 
   if (room) {
+    const practicing =
+      Boolean(room.live.isPractice) || room.live.status === 'PRACTICE'
     return (
       <LiveRoom
         creds={room.agora}
         title={room.live.title}
-        subtitle="Broadcasting as host"
+        subtitle={
+          practicing
+            ? room.live.scheduledAt
+              ? 'Practice for your premiere — fans can’t join yet'
+              : 'Practice mode — not visible to fans'
+            : 'Broadcasting as host'
+        }
         liveId={room.live.id}
         emojiPrice={room.live.emojiPrice}
         initialPaused={Boolean(room.live.isPaused)}
         initialBrbMessage={room.live.brbMessage}
         initialBrbImageUrl={room.live.brbImageUrl}
+        initialLatencyMode={
+          room.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+        }
+        isPractice={practicing}
         onLeave={() => setRoom(null)}
         onEnd={() => endLive.mutate(room.live.id)}
+        onGoPublic={
+          practicing
+            ? async () => {
+                const res = await goPublic.mutateAsync(room.live.id)
+                return { live: res.live }
+              }
+            : undefined
+        }
       />
     )
   }
 
   const lives = livesQuery.data ?? []
-  const pending = createLive.isPending || scheduleLive.isPending
+  const pending =
+    createLive.isPending || scheduleLive.isPending || practiceLive.isPending
   const valid =
     title.trim() &&
     Number(emojiPrice) > 0 &&
@@ -141,7 +200,7 @@ export function LiveEventsStudio() {
     <div>
       <StudioPageHeader
         title="Live Events"
-        description="Go live now or schedule a paid or free broadcast for your audience."
+        description="Practice privately, go live now, or schedule a paid or free broadcast."
       />
 
       <StudioGlassCard glow="creator" className="mb-6 p-5 sm:p-6">
@@ -235,6 +294,15 @@ export function LiveEventsStudio() {
           </button>
           <button
             type="button"
+            disabled={!valid || pending}
+            onClick={() => practiceLive.mutate()}
+            className="inline-flex h-11 items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/10 px-5 text-sm font-semibold text-amber-100 disabled:opacity-40"
+          >
+            <Clapperboard className="size-4" />
+            Practice
+          </button>
+          <button
+            type="button"
             disabled={!valid || !scheduledAt || pending}
             onClick={() => scheduleLive.mutate()}
             className="inline-flex h-11 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-5 text-sm font-semibold text-white disabled:opacity-40"
@@ -256,7 +324,11 @@ export function LiveEventsStudio() {
                     {live.title}
                   </span>
                   <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white/55">
-                    {live.isPaused ? 'BRB' : live.status}
+                    {live.isPaused
+                      ? 'BRB'
+                      : live.isPractice || live.status === 'PRACTICE'
+                        ? 'PRACTICE'
+                        : live.status}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-white/40">
@@ -273,22 +345,41 @@ export function LiveEventsStudio() {
                 </p>
               </div>
               {live.status === 'SCHEDULED' ? (
-                <button
-                  type="button"
-                  onClick={() => startScheduled.mutate(live.id)}
-                  disabled={startScheduled.isPending}
-                  className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-black"
-                >
-                  <Play className="size-3.5" /> Start
-                </button>
-              ) : live.status === 'LIVE' ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => practiceScheduled.mutate(live.id)}
+                    disabled={
+                      practiceScheduled.isPending || startScheduled.isPending
+                    }
+                    className="inline-flex h-10 items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/10 px-4 text-xs font-semibold text-amber-100"
+                  >
+                    <Clapperboard className="size-3.5" /> Practice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startScheduled.mutate(live.id)}
+                    disabled={
+                      startScheduled.isPending || practiceScheduled.isPending
+                    }
+                    className="inline-flex h-10 items-center gap-2 rounded-full bg-white px-4 text-xs font-semibold text-black"
+                  >
+                    <Play className="size-3.5" /> Start
+                  </button>
+                </div>
+              ) : live.status === 'LIVE' ||
+                live.status === 'PRACTICE' ||
+                live.isPractice ? (
                 <button
                   type="button"
                   onClick={() => endLive.mutate(live.id)}
                   disabled={endLive.isPending}
                   className="inline-flex h-10 items-center gap-2 rounded-full border border-rose-400/30 bg-rose-500/10 px-4 text-xs font-semibold text-rose-200"
                 >
-                  <Square className="size-3.5" /> End
+                  <Square className="size-3.5" />{' '}
+                  {live.isPractice || live.status === 'PRACTICE'
+                    ? 'End practice'
+                    : 'End'}
                 </button>
               ) : null}
             </div>
