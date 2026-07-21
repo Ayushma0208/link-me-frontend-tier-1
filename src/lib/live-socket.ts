@@ -18,6 +18,14 @@ export interface LiveChatMessage {
   user: LiveChatUser
 }
 
+export interface LiveBrbPayload {
+  liveId: string
+  isPaused: boolean
+  brbMessage: string | null
+  brbImageUrl: string | null
+  pausedAt: string | null
+}
+
 function socketOrigin(): string {
   const api = process.env.NEXT_PUBLIC_API_URL ?? '/api'
   if (api.startsWith('http://') || api.startsWith('https://')) {

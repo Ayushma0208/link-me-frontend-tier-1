@@ -51,7 +51,7 @@ export function LiveToastHost() {
               }}
               className="shrink-0 rounded-full bg-white px-4 py-1.5 text-[12px] font-bold text-[#07070b] transition hover:bg-white/90"
             >
-              Join
+              {liveToast.isReminder ? 'Open' : 'Join'}
             </button>
             <button
               type="button"

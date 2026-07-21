@@ -121,6 +121,9 @@ export function LiveEventsStudio() {
         subtitle="Broadcasting as host"
         liveId={room.live.id}
         emojiPrice={room.live.emojiPrice}
+        initialPaused={Boolean(room.live.isPaused)}
+        initialBrbMessage={room.live.brbMessage}
+        initialBrbImageUrl={room.live.brbImageUrl}
         onLeave={() => setRoom(null)}
         onEnd={() => endLive.mutate(room.live.id)}
       />
@@ -253,7 +256,7 @@ export function LiveEventsStudio() {
                     {live.title}
                   </span>
                   <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-white/55">
-                    {live.status}
+                    {live.isPaused ? 'BRB' : live.status}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-white/40">

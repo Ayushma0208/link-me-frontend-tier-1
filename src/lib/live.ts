@@ -20,11 +20,23 @@ export interface LiveDto {
   emojiPrice: number | null
   currency: string
   status: 'SCHEDULED' | 'LIVE' | 'ENDED'
+  /** Temporary A/V pause with BRB screen — session stays LIVE. */
+  isPaused?: boolean
+  brbMessage?: string | null
+  brbImageUrl?: string | null
+  pausedAt?: string | null
+  /** Subscriber opted in for 1h / 15m premiere reminders. */
+  notifyMe?: boolean
   scheduledAt: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
   creator?: LiveCreator
+}
+
+export interface PauseLiveInput {
+  message?: string
+  imageUrl?: string | null
 }
 
 export interface AgoraCreds {
@@ -61,9 +73,24 @@ export function listUpcomingLives() {
 }
 
 export function getLive(id: string) {
-  return api<{ live: LiveDto; isSubscriber: boolean; hasAccess: boolean }>(
-    `/lives/${id}`
-  )
+  return api<{
+    live: LiveDto
+    isSubscriber: boolean
+    hasAccess: boolean
+    notifyMe: boolean
+  }>(`/lives/${id}`)
+}
+
+export function notifyMeLive(id: string) {
+  return api<{ live: LiveDto; notifyMe: boolean }>(`/lives/${id}/notify-me`, {
+    method: 'POST',
+  })
+}
+
+export function unnotifyMeLive(id: string) {
+  return api<{ live: LiveDto; notifyMe: boolean }>(`/lives/${id}/notify-me`, {
+    method: 'DELETE',
+  })
 }
 
 export function joinLive(id: string) {
@@ -158,4 +185,30 @@ export function endLive(liveId: string) {
 
 export function listCreatorLives(creatorId: string) {
   return api<LiveDto[]>(`/admin/creators/${creatorId}/live`)
+}
+
+export function pauseCreatorLive(liveId: string, input: PauseLiveInput = {}) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/pause`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function resumeCreatorLive(liveId: string) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/resume`, {
+    method: 'POST',
+  })
+}
+
+export function pauseAdminLive(liveId: string, input: PauseLiveInput = {}) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/pause`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function resumeAdminLive(liveId: string) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/resume`, {
+    method: 'POST',
+  })
 }

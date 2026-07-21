@@ -24,6 +24,8 @@ import { uploadMediaFile } from '@/lib/media-upload'
 import {
   endLive,
   listCreatorLives,
+  pauseAdminLive,
+  resumeAdminLive,
   scheduleLive,
   startLive,
   startScheduledLive,
@@ -1856,11 +1858,16 @@ export function AdminCreatorDetail() {
               ? `Paid live · ${formatCurrency(hostLive.price ?? 0)}`
               : 'Free for subscribers'
           }
+          initialPaused={Boolean(hostLive.isPaused)}
+          initialBrbMessage={hostLive.brbMessage}
+          initialBrbImageUrl={hostLive.brbImageUrl}
           onLeave={() => {
             setHostCreds(null)
             setHostLive(null)
           }}
           onEnd={() => stopLive.mutate(hostLive.id)}
+          onPause={(input) => pauseAdminLive(hostLive.id, input)}
+          onResume={() => resumeAdminLive(hostLive.id)}
         />
       ) : null}
 

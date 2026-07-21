@@ -3,12 +3,16 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { CalendarClock, Loader2, Radio } from 'lucide-react'
+import { Bell, BellOff, CalendarClock, Loader2, Radio } from 'lucide-react'
+import { ApiError } from '@/lib/api'
 import {
   listActiveLives,
   listUpcomingLives,
+  notifyMeLive,
+  unnotifyMeLive,
   type LiveDto,
 } from '@/lib/live'
+import { formatCountdownShort } from '@/lib/premiere-countdown'
 import { formatCurrency } from '@/lib/utils'
 
 function avatarFor(live: LiveDto) {
@@ -35,6 +39,8 @@ export function UserLivePage() {
   const [items, setItems] = useState<LiveDto[]>([])
   const [upcoming, setUpcoming] = useState<LiveDto[]>([])
   const [loading, setLoading] = useState(true)
+  const [notifyBusyId, setNotifyBusyId] = useState<string | null>(null)
+  const [, setTick] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -53,11 +59,37 @@ export function UserLivePage() {
       if (!cancelled) setLoading(false)
     })
     const interval = setInterval(() => void load(), 8000)
+    const tick = setInterval(() => setTick((t) => t + 1), 1000)
     return () => {
       cancelled = true
       clearInterval(interval)
+      clearInterval(tick)
     }
   }, [])
+
+  async function toggleNotify(live: LiveDto) {
+    if (notifyBusyId) return
+    setNotifyBusyId(live.id)
+    try {
+      const res = live.notifyMe
+        ? await unnotifyMeLive(live.id)
+        : await notifyMeLive(live.id)
+      setUpcoming((prev) =>
+        prev.map((item) =>
+          item.id === live.id
+            ? { ...item, notifyMe: Boolean(res.notifyMe) }
+            : item
+        )
+      )
+    } catch (err) {
+      console.error(
+        err instanceof ApiError ? err.message : 'Notify Me failed',
+        err
+      )
+    } finally {
+      setNotifyBusyId(null)
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -138,15 +170,17 @@ export function UserLivePage() {
           {upcoming.length > 0 ? (
             <section className="space-y-3">
               <p className="text-[11px] font-semibold tracking-[0.16em] text-white/40 uppercase">
-                Upcoming
+                Upcoming premieres
               </p>
               {upcoming.map((live) => (
-                <Link
+                <div
                   key={live.id}
-                  href={`/live/${live.id}`}
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3.5 transition hover:border-white/20 hover:bg-white/[0.07]"
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3.5"
                 >
-                  <div className="relative size-14 shrink-0 overflow-hidden rounded-2xl ring-1 ring-white/10">
+                  <Link
+                    href={`/live/${live.id}`}
+                    className="relative size-14 shrink-0 overflow-hidden rounded-2xl ring-1 ring-white/10"
+                  >
                     <Image
                       src={avatarFor(live)}
                       alt=""
@@ -156,27 +190,53 @@ export function UserLivePage() {
                     />
                     <span className="absolute bottom-1 left-1 flex items-center gap-0.5 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                       <CalendarClock className="size-2.5" />
-                      Soon
+                      {formatCountdownShort(live.scheduledAt)}
                     </span>
-                  </div>
+                  </Link>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-semibold text-white">
-                      {live.creator?.name ?? 'Creator'}
-                    </p>
-                    <p className="truncate text-[13px] text-white/50">
-                      {live.title}
-                    </p>
-                    <p className="mt-0.5 text-[12px] text-white/35">
-                      {whenLabel(live.scheduledAt)} ·{' '}
-                      {live.accessType === 'PAID'
-                        ? `Paid · ${formatCurrency(live.price ?? 0)}`
-                        : 'Free for subscribers'}
-                    </p>
+                    <Link href={`/live/${live.id}`} className="block min-w-0">
+                      <p className="truncate text-[15px] font-semibold text-white">
+                        {live.creator?.name ?? 'Creator'}
+                      </p>
+                      <p className="truncate text-[13px] text-white/50">
+                        {live.title}
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-white/35">
+                        {whenLabel(live.scheduledAt)} ·{' '}
+                        {live.accessType === 'PAID'
+                          ? `Paid · ${formatCurrency(live.price ?? 0)}`
+                          : 'Free for subscribers'}
+                      </p>
+                    </Link>
                   </div>
-                  <span className="shrink-0 rounded-full border border-white/15 px-3.5 py-1.5 text-[12px] font-bold text-white/80">
-                    Details
-                  </span>
-                </Link>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <button
+                      type="button"
+                      disabled={notifyBusyId === live.id}
+                      onClick={() => void toggleNotify(live)}
+                      className={`inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                        live.notifyMe
+                          ? 'border border-white/15 bg-white/10 text-white'
+                          : 'bg-white text-[#07070b]'
+                      }`}
+                    >
+                      {notifyBusyId === live.id ? (
+                        <Loader2 className="size-3 animate-spin" />
+                      ) : live.notifyMe ? (
+                        <BellOff className="size-3" />
+                      ) : (
+                        <Bell className="size-3" />
+                      )}
+                      {live.notifyMe ? 'Reminded' : 'Notify Me'}
+                    </button>
+                    <Link
+                      href={`/live/${live.id}`}
+                      className="rounded-full border border-white/15 px-3 py-1 text-[11px] font-bold text-white/80"
+                    >
+                      Details
+                    </Link>
+                  </div>
+                </div>
               ))}
             </section>
           ) : null}
