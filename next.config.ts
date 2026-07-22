@@ -23,6 +23,7 @@ const withSerwist = withSerwistInit({
 })
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
   transpilePackages: ['@link-me/shared'],
   images: {
     remotePatterns: [
