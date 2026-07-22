@@ -13,7 +13,7 @@ services:
         NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
         NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER: ${NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER:-}
     ports:
-      - "${PORT:-3021}:3000"
+      - "${HOST_PORT:-3021}:3000"
     env_file:
       - .env
     extra_hosts:
