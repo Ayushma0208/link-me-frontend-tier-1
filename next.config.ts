@@ -5,10 +5,10 @@ import withSerwistInit from '@serwist/next'
 
 const API_URL = process.env.API_URL ?? 'http://localhost:4000'
 
-// PWA runs only in production builds (Webpack). Dev uses Turbopack, where
-// Serwist isn't supported, so we skip wrapping the config entirely in dev
-// to avoid the Turbopack/Webpack warnings.
-const isDev = process.env.NODE_ENV === 'development'
+// Serwist needs Webpack (not Turbopack). Production always enables PWA.
+// Locally: use `npm run dev:pwa` (ENABLE_PWA=1, Webpack) or `npm run preview:pwa`.
+const enablePwa =
+  process.env.NODE_ENV === 'production' || process.env.ENABLE_PWA === '1'
 
 const offlineRevision = createHash('md5')
   .update(readFileSync('./src/app/~offline/page.tsx', 'utf8'))
@@ -17,7 +17,7 @@ const offlineRevision = createHash('md5')
 const withSerwist = withSerwistInit({
   swSrc: 'src/app/sw.ts',
   swDest: 'public/sw.js',
-  disable: isDev,
+  disable: !enablePwa,
   // Required: HTML for /~offline must be precached or the SW fallback fails
   additionalPrecacheEntries: [{ url: '/~offline', revision: offlineRevision }],
 })
@@ -64,4 +64,4 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default isDev ? nextConfig : withSerwist(nextConfig)
+export default enablePwa ? withSerwist(nextConfig) : nextConfig

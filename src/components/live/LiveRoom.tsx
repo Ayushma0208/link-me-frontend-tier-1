@@ -3,26 +3,63 @@
 import { useEffect, useRef, useState } from 'react'
 import AgoraRTC, {
   type IAgoraRTCClient,
+  type IAgoraRTCRemoteUser,
   type ICameraVideoTrack,
   type IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Radio, X } from 'lucide-react'
-import { getLive, isMockAgora, type AgoraCreds } from '@/lib/live'
+import { Clapperboard, Coffee, Play, Radio, X } from 'lucide-react'
+import {
+  getLive,
+  isMockAgora,
+  pauseCreatorLive,
+  resumeCreatorLive,
+  setLatencyModeMine,
+  type AgoraCreds,
+  type LiveDto,
+  type LiveLatencyMode,
+  type PauseLiveInput,
+} from '@/lib/live'
+import {
+  connectLiveSocket,
+  type LiveBrbPayload,
+  type LiveLatencyPayload,
+} from '@/lib/live-socket'
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
 
 interface LiveRoomProps {
   creds: AgoraCreds
   title: string
   subtitle?: string
-  /** Used by viewers to poll when the creator ends the session. */
+  /** Used by viewers to poll when the creator ends / pauses the session. */
   liveId?: string
   /** Admin-set price per emoji reaction (viewers). */
   emojiPrice?: number | null
+  /** Seed BRB state when host re-enters an already-paused live. */
+  initialPaused?: boolean
+  initialBrbMessage?: string | null
+  initialBrbImageUrl?: string | null
+  /** Session Agora audience latency (default ultra-low). */
+  initialLatencyMode?: LiveLatencyMode
   onLeave: () => void
   /** Called after the ended message is shown (viewers → redirect home). */
   onEnded?: () => void
   /** Host-only end action (also ends the session server-side). */
   onEnd?: () => void
+  /** Override pause API (e.g. admin host). Defaults to creator self-service. */
+  onPause?: (input: PauseLiveInput) => Promise<{ live: LiveDto }>
+  /** Override resume API (e.g. admin host). Defaults to creator self-service. */
+  onResume?: () => Promise<{ live: LiveDto }>
+  /** Override latency API (e.g. admin host). */
+  onSetLatency?: (mode: LiveLatencyMode) => Promise<{ live: LiveDto }>
+  /** Private warm-up — host only until go-public. */
+  isPractice?: boolean
+  /** Host flips practice → public LIVE (same Agora channel). */
+  onGoPublic?: () => Promise<{ live: LiveDto }>
+}
+
+/** Agora audience level: 2 = ultra-low, 1 = low (normal/stable). */
+function agoraAudienceLevel(mode: LiveLatencyMode): 1 | 2 {
+  return mode === 'NORMAL' ? 1 : 2
 }
 
 function containerHasVideo(el: HTMLElement | null): boolean {
@@ -33,30 +70,122 @@ function containerHasVideo(el: HTMLElement | null): boolean {
   return true
 }
 
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+async function teardownClient(client: IAgoraRTCClient | null) {
+  if (!client) return
+  try {
+    client.removeAllListeners()
+  } catch {
+    // ignore
+  }
+  try {
+    await client.leave()
+  } catch {
+    // ignore — already left / mid-leave on rejoin
+  }
+}
+
 export function LiveRoom({
   creds,
   title,
   subtitle,
   liveId,
   emojiPrice = null,
+  initialPaused = false,
+  initialBrbMessage = null,
+  initialBrbImageUrl = null,
+  initialLatencyMode = 'ULTRA_LOW',
   onLeave,
   onEnded,
   onEnd,
+  onPause,
+  onResume,
+  onSetLatency,
+  isPractice: isPracticeProp = false,
+  onGoPublic,
 }: LiveRoomProps) {
   const isHost = creds.role === 'host'
   const [status, setStatus] = useState<
     'connecting' | 'live' | 'waiting' | 'ended'
   >('connecting')
-  const [hasVideoEl, setHasVideoEl] = useState(false)
+  const [, setHasVideoEl] = useState(false)
+  const [isPaused, setIsPaused] = useState(initialPaused)
+  const [isPractice, setIsPractice] = useState(isPracticeProp)
+  const [latencyMode, setLatencyMode] =
+    useState<LiveLatencyMode>(initialLatencyMode)
+  const [brbMessage, setBrbMessage] = useState(
+    initialBrbMessage ?? 'Be right back'
+  )
+  const [brbImageUrl, setBrbImageUrl] = useState<string | null>(
+    initialBrbImageUrl
+  )
+  const [brbBusy, setBrbBusy] = useState(false)
+  const [goPublicBusy, setGoPublicBusy] = useState(false)
+  const [latencyBusy, setLatencyBusy] = useState(false)
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
   const micRef = useRef<IMicrophoneAudioTrack | null>(null)
   const endedRef = useRef(false)
+  const leavingRef = useRef(false)
+  const latencyModeRef = useRef(latencyMode)
+  latencyModeRef.current = latencyMode
+
+  useEffect(() => {
+    setIsPractice(isPracticeProp)
+  }, [isPracticeProp])
+
+  useEffect(() => {
+    setLatencyMode(initialLatencyMode)
+  }, [initialLatencyMode])
+
+  async function applyAudienceLatency(mode: LiveLatencyMode) {
+    const client = clientRef.current
+    if (!client || isHost || leavingRef.current) return
+    try {
+      await client.setClientRole('audience', {
+        level: agoraAudienceLevel(mode),
+      })
+    } catch (err) {
+      console.error('Failed to apply audience latency', err)
+    }
+  }
+
+  function applyBrb(payload: {
+    isPaused: boolean
+    brbMessage?: string | null
+    brbImageUrl?: string | null
+  }) {
+    setIsPaused(payload.isPaused)
+    if (payload.isPaused) {
+      setBrbMessage(payload.brbMessage?.trim() || 'Be right back')
+      setBrbImageUrl(payload.brbImageUrl ?? null)
+    } else {
+      setBrbMessage('Be right back')
+      setBrbImageUrl(null)
+    }
+  }
+
+  async function setLocalTracksEnabled(enabled: boolean) {
+    try {
+      await Promise.all([
+        camRef.current?.setEnabled(enabled),
+        micRef.current?.setEnabled(enabled),
+      ])
+    } catch (err) {
+      console.error('Failed to toggle live tracks', err)
+    }
+  }
 
   function markEnded() {
     if (endedRef.current) return
     endedRef.current = true
+    setIsPaused(false)
     setStatus('ended')
   }
 
@@ -87,16 +216,31 @@ export function LiveRoom({
     }
   }, [])
 
-  // Viewers: poll API so we detect "End live" even if Agora events miss.
+  // Viewers: poll API so we detect end / BRB even if Agora or socket miss.
   useEffect(() => {
-    if (isHost || !liveId) return
+    if (!liveId) return
     let cancelled = false
 
     const tick = async () => {
       try {
         const details = await getLive(liveId)
-        if (!cancelled && details.live.status === 'ENDED') {
+        if (cancelled) return
+        if (details.live.status === 'ENDED') {
           markEnded()
+          return
+        }
+        if (!isHost) {
+          applyBrb({
+            isPaused: Boolean(details.live.isPaused),
+            brbMessage: details.live.brbMessage,
+            brbImageUrl: details.live.brbImageUrl,
+          })
+          const nextMode =
+            details.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+          if (nextMode !== latencyModeRef.current) {
+            setLatencyMode(nextMode)
+            void applyAudienceLatency(nextMode)
+          }
         }
       } catch {
         // ignore transient errors
@@ -108,6 +252,39 @@ export function LiveRoom({
     return () => {
       cancelled = true
       clearInterval(interval)
+    }
+  }, [isHost, liveId])
+
+  // Real-time BRB updates via the live chat socket room.
+  useEffect(() => {
+    if (!liveId) return
+    const socket = connectLiveSocket()
+    if (!socket) return
+
+    const onBrb = (payload: LiveBrbPayload) => {
+      if (payload.liveId !== liveId) return
+      applyBrb(payload)
+      if (isHost) {
+        void setLocalTracksEnabled(!payload.isPaused)
+      }
+    }
+
+    const onLatency = (payload: LiveLatencyPayload) => {
+      if (payload.liveId !== liveId) return
+      const nextMode =
+        payload.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+      setLatencyMode(nextMode)
+      if (!isHost) void applyAudienceLatency(nextMode)
+    }
+
+    socket.emit('live:join', { liveId })
+    socket.on('live:brb', onBrb)
+    socket.on('live:latency', onLatency)
+
+    return () => {
+      socket.off('live:brb', onBrb)
+      socket.off('live:latency', onLatency)
+      socket.disconnect()
     }
   }, [isHost, liveId])
 
@@ -123,107 +300,307 @@ export function LiveRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to ended
   }, [status, isHost])
 
+  // Join once per channel + uid. Do not depend on the whole creds object —
+  // go-public returns a refreshed token object and must not tear down the host
+  // camera mid-session.
+  const agoraJoinKey = `${creds.appId}:${creds.channel}:${String(creds.uid)}:${creds.role}`
+
   useEffect(() => {
     let mounted = true
+    let stuckTimer: number | undefined
     const mock = isMockAgora(creds)
+    leavingRef.current = false
+
+    /** Once join is granted, the viewer is in the room — never trap on "connecting". */
+    function enterRoom(opts?: { paused?: boolean }) {
+      if (!mounted || endedRef.current) return
+      setStatus('live')
+      if (opts?.paused || initialPaused) {
+        applyBrb({
+          isPaused: true,
+          brbMessage: initialBrbMessage,
+          brbImageUrl: initialBrbImageUrl,
+        })
+      }
+    }
+
+    function playRemoteVideo(user: IAgoraRTCRemoteUser) {
+      const track = user.videoTrack
+      const el = videoRef.current
+      if (!track || !el) return
+      // Avoid stacking stale <video> nodes after leave/rejoin.
+      el.replaceChildren()
+      track.play(el)
+      if (mounted) markLive()
+    }
+
+    async function subscribeRemote(
+      client: IAgoraRTCClient,
+      user: IAgoraRTCRemoteUser,
+      mediaType: 'audio' | 'video'
+    ) {
+      try {
+        await client.subscribe(user, mediaType)
+        if (mediaType === 'video') playRemoteVideo(user)
+        if (mediaType === 'audio') user.audioTrack?.play()
+      } catch (err) {
+        console.error('Agora subscribe failed', err)
+      }
+    }
+
+    /** Host may already be publishing — remotes can appear slightly after join. */
+    async function subscribeExistingRemotes(client: IAgoraRTCClient) {
+      for (const user of client.remoteUsers) {
+        if (!mounted) return
+        if (user.hasVideo && !user.videoTrack) {
+          await subscribeRemote(client, user, 'video')
+        } else if (user.videoTrack) {
+          playRemoteVideo(user)
+        }
+        if (user.hasAudio && !user.audioTrack) {
+          await subscribeRemote(client, user, 'audio')
+        } else if (user.audioTrack) {
+          user.audioTrack.play()
+        }
+      }
+    }
+
+    async function joinChannel(client: IAgoraRTCClient) {
+      const uid =
+        typeof creds.uid === 'number' ? creds.uid : Number(creds.uid) || null
+      let lastError: unknown
+      // Same stable UID: rapid leave→rejoin can fail until Agora releases the seat.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (!mounted) return
+        try {
+          await client.join(creds.appId, creds.channel, creds.token, uid)
+          return
+        } catch (err) {
+          lastError = err
+          console.warn('Agora join attempt failed', { attempt, err })
+          try {
+            await client.leave()
+          } catch {
+            // ignore
+          }
+          await delay(350 * (attempt + 1))
+        }
+      }
+      throw lastError
+    }
 
     async function start() {
+      // Safety: if Agora hangs, still enter the room so leave/rejoin never sticks.
+      stuckTimer = window.setTimeout(() => {
+        enterRoom()
+      }, 4000)
+
+      // Demo / missing Agora: join API already proved the session is live.
       if (mock) {
-        setStatus(isHost ? 'live' : 'waiting')
+        window.clearTimeout(stuckTimer)
+        setHasVideoEl(true)
+        enterRoom()
         return
       }
 
       try {
         const client = AgoraRTC.createClient({ mode: 'live', codec: 'vp8' })
+        if (!mounted) {
+          await teardownClient(client)
+          return
+        }
         clientRef.current = client
-        await client.setClientRole(isHost ? 'host' : 'audience')
 
-        const playRemoteVideo = (user: {
-          videoTrack?: { play: (el: HTMLElement) => void } | null
-        }) => {
-          if (!videoRef.current || !user.videoTrack) return
-          user.videoTrack.play(videoRef.current)
-          if (mounted) markLive()
+        if (isHost) {
+          await client.setClientRole('host')
+        } else {
+          await client.setClientRole('audience', {
+            level: agoraAudienceLevel(latencyModeRef.current),
+          })
         }
 
         client.on('user-published', async (user, mediaType) => {
-          try {
-            await client.subscribe(user, mediaType)
-            if (mediaType === 'video') playRemoteVideo(user)
-            if (mediaType === 'audio') user.audioTrack?.play()
-          } catch (err) {
-            console.error('Agora subscribe failed', err)
+          if (!mounted || leavingRef.current) return
+          if (mediaType !== 'audio' && mediaType !== 'video') return
+          await subscribeRemote(client, user, mediaType)
+        })
+
+        client.on('user-unpublished', (user, mediaType) => {
+          if (mediaType === 'video' && videoRef.current) {
+            // Track stopped — clear so a later publish can play cleanly.
+            if (!user.hasVideo) videoRef.current.replaceChildren()
           }
         })
 
-        // Never flip back to "waiting" after video has shown — that overlay
-        // was covering a working stream for viewers.
-        client.on('user-left', () => {})
-        client.on('user-unpublished', () => {})
-
-        await client.join(
-          creds.appId,
-          creds.channel,
-          creds.token,
-          typeof creds.uid === 'number' ? creds.uid : Number(creds.uid) || null
-        )
+        await joinChannel(client)
+        if (!mounted) return
 
         if (isHost) {
           const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks()
+          if (!mounted) {
+            mic.close()
+            cam.close()
+            return
+          }
           micRef.current = mic
           camRef.current = cam
-          if (videoRef.current) cam.play(videoRef.current)
+          if (videoRef.current) {
+            videoRef.current.replaceChildren()
+            cam.play(videoRef.current)
+          }
           await client.publish([mic, cam])
+          if (initialPaused) {
+            await setLocalTracksEnabled(false)
+          }
+          window.clearTimeout(stuckTimer)
           if (mounted) markLive()
         } else {
-          for (const user of client.remoteUsers) {
-            try {
-              if (user.hasVideo) {
-                await client.subscribe(user, 'video')
-                playRemoteVideo(user)
-              }
-              if (user.hasAudio) {
-                await client.subscribe(user, 'audio')
-                user.audioTrack?.play()
-              }
-            } catch (err) {
-              console.error('Agora remote subscribe failed', err)
-            }
+          await subscribeExistingRemotes(client)
+          // Remotes / tracks often arrive a beat after join on rejoin.
+          for (let i = 0; i < 10 && mounted; i++) {
+            if (containerHasVideo(videoRef.current)) break
+            await delay(300)
+            await subscribeExistingRemotes(client)
           }
-          if (mounted && !endedRef.current) {
-            if (containerHasVideo(videoRef.current)) markLive()
-            else setStatus((prev) => (prev === 'live' || prev === 'ended' ? prev : 'waiting'))
+          window.clearTimeout(stuckTimer)
+          // Always enter the room after a successful channel join — video may
+          // arrive later via user-published, or host may be on BRB with A/V off.
+          enterRoom({ paused: initialPaused })
+          if (containerHasVideo(videoRef.current)) {
+            setHasVideoEl(true)
           }
         }
       } catch (err) {
         console.error('Agora live join failed', err)
+        window.clearTimeout(stuckTimer)
         if (mounted && !endedRef.current) {
-          if (containerHasVideo(videoRef.current)) markLive()
-          else setStatus(isHost ? 'live' : 'waiting')
+          // Keep connecting UI for viewers so we don't fake a blank "LIVE".
+          if (isHost) markLive()
+          else setStatus('connecting')
         }
       }
     }
 
-    start()
+    void start()
 
     return () => {
       mounted = false
-      camRef.current?.close()
-      micRef.current?.close()
-      clientRef.current?.leave().catch(() => {})
+      leavingRef.current = true
+      if (stuckTimer != null) window.clearTimeout(stuckTimer)
+      const client = clientRef.current
+      clientRef.current = null
+      const cam = camRef.current
+      const mic = micRef.current
+      camRef.current = null
+      micRef.current = null
+      cam?.close()
+      mic?.close()
+      void teardownClient(client)
     }
-  }, [creds, isHost])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- join once per channel/uid
+  }, [agoraJoinKey, isHost])
 
   async function cleanup() {
+    leavingRef.current = true
+    const client = clientRef.current
+    clientRef.current = null
     camRef.current?.close()
     micRef.current?.close()
-    await clientRef.current?.leave().catch(() => {})
+    camRef.current = null
+    micRef.current = null
+    await teardownClient(client)
+    // Give Agora a beat to release the stable UID before a quick rejoin.
+    await delay(400)
   }
 
-  // Show the waiting/connecting overlay only when there is no video yet.
+  async function handlePause() {
+    if (!liveId || brbBusy) return
+    setBrbBusy(true)
+    try {
+      const result = onPause
+        ? await onPause({ message: 'Be right back' })
+        : await pauseCreatorLive(liveId, { message: 'Be right back' })
+      applyBrb({
+        isPaused: true,
+        brbMessage: result.live.brbMessage,
+        brbImageUrl: result.live.brbImageUrl,
+      })
+      await setLocalTracksEnabled(false)
+    } catch (err) {
+      console.error('Failed to pause live', err)
+    } finally {
+      setBrbBusy(false)
+    }
+  }
+
+  async function handleResume() {
+    if (!liveId || brbBusy) return
+    setBrbBusy(true)
+    try {
+      const result = onResume
+        ? await onResume()
+        : await resumeCreatorLive(liveId)
+      applyBrb({
+        isPaused: Boolean(result.live.isPaused),
+        brbMessage: result.live.brbMessage,
+        brbImageUrl: result.live.brbImageUrl,
+      })
+      await setLocalTracksEnabled(true)
+    } catch (err) {
+      console.error('Failed to resume live', err)
+    } finally {
+      setBrbBusy(false)
+    }
+  }
+
+  async function handleGoPublic() {
+    if (!onGoPublic || goPublicBusy) return
+    setGoPublicBusy(true)
+    try {
+      const result = await onGoPublic()
+      setIsPractice(
+        Boolean(result.live.isPractice) || result.live.status === 'PRACTICE'
+      )
+      if (result.live.latencyMode) {
+        setLatencyMode(
+          result.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+        )
+      }
+    } finally {
+      setGoPublicBusy(false)
+    }
+  }
+
+  async function handleSetLatency(mode: LiveLatencyMode) {
+    if (!liveId || latencyBusy || mode === latencyMode) return
+    setLatencyBusy(true)
+    try {
+      const result = onSetLatency
+        ? await onSetLatency(mode)
+        : await setLatencyModeMine(liveId, mode)
+      const next =
+        result.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+      setLatencyMode(next)
+    } catch (err) {
+      console.error('Failed to set latency mode', err)
+    } finally {
+      setLatencyBusy(false)
+    }
+  }
+
+  // Only show a blocking overlay while the very first join is in flight, or ended.
+  // Once status is "live", stay in the room even if video hasn't painted yet.
   const showStatusOverlay =
-    status === 'ended' ||
-    (status !== 'live' && !hasVideoEl)
+    !isPaused && (status === 'ended' || status === 'connecting')
+
+  const statusMessage =
+    status === 'ended'
+      ? 'Live is ended'
+      : isHost
+        ? isPractice
+          ? 'Practice mode'
+          : 'You are live'
+        : 'Connecting to stream…'
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black">
@@ -232,6 +609,19 @@ export function LiveRoom({
           {status === 'ended' ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white/70">
               Ended
+            </span>
+          ) : isPractice ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
+              <Clapperboard className="size-3" />
+              Practice
+            </span>
+          ) : isPaused ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
+              BRB
+            </span>
+          ) : status === 'connecting' ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white/70">
+              Connecting
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
@@ -247,53 +637,165 @@ export function LiveRoom({
           </div>
         </div>
         {status !== 'ended' ? (
-          <button
-            type="button"
-            onClick={async () => {
-              await cleanup()
-              if (isHost && onEnd) onEnd()
-              else onLeave()
-            }}
-            className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20"
-          >
-            <X className="size-4" />
-            {isHost ? 'End live' : 'Leave'}
-          </button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {isHost && liveId ? (
+              <div className="flex items-center rounded-full border border-white/15 bg-white/5 p-0.5">
+                <button
+                  type="button"
+                  disabled={latencyBusy}
+                  onClick={() => void handleSetLatency('ULTRA_LOW')}
+                  className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                    latencyMode === 'ULTRA_LOW'
+                      ? 'bg-white text-black'
+                      : 'text-white/55 hover:text-white'
+                  }`}
+                >
+                  Ultra-low
+                </button>
+                <button
+                  type="button"
+                  disabled={latencyBusy}
+                  onClick={() => void handleSetLatency('NORMAL')}
+                  className={`rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                    latencyMode === 'NORMAL'
+                      ? 'bg-white text-black'
+                      : 'text-white/55 hover:text-white'
+                  }`}
+                >
+                  Normal
+                </button>
+              </div>
+            ) : null}
+            {isHost && isPractice && onGoPublic ? (
+              <button
+                type="button"
+                disabled={goPublicBusy}
+                onClick={() => void handleGoPublic()}
+                className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:opacity-95 disabled:opacity-50"
+              >
+                <Radio className="size-4" />
+                {goPublicBusy ? 'Going live…' : 'Go live to audience'}
+              </button>
+            ) : null}
+            {isHost && liveId && !isPractice ? (
+              isPaused ? (
+                <button
+                  type="button"
+                  disabled={brbBusy}
+                  onClick={() => void handleResume()}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2 text-[13px] font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
+                >
+                  <Play className="size-4 fill-black" />
+                  Resume
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={brbBusy}
+                  onClick={() => void handlePause()}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/90 px-3.5 py-2 text-[13px] font-semibold text-black transition hover:bg-amber-400 disabled:opacity-50"
+                >
+                  <Coffee className="size-4" />
+                  BRB
+                </button>
+              )
+            ) : null}
+            <button
+              type="button"
+              onClick={async () => {
+                await cleanup()
+                if (isHost && onEnd) onEnd()
+                else onLeave()
+              }}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20"
+            >
+              <X className="size-4" />
+              {isHost ? (isPractice ? 'End practice' : 'End live') : 'Leave'}
+            </button>
+          </div>
         ) : null}
       </div>
 
+      {isHost && liveId && status !== 'ended' ? (
+        <p className="relative z-30 px-4 pb-1 text-[11px] text-white/40">
+          Ultra-low syncs chat better; Normal is steadier on weak networks.
+        </p>
+      ) : null}
+
+      {isPractice && status !== 'ended' ? (
+        <div className="relative z-30 mx-4 mb-2 rounded-2xl border border-amber-400/25 bg-amber-500/10 px-3.5 py-2.5 text-[13px] text-amber-50/90">
+          Only you can see this — test camera, lighting, and audio
+        </div>
+      ) : null}
+
       <div className="relative flex-1">
         <div ref={videoRef} className="absolute inset-0 bg-[#0b0b0f]" />
+
+        {isPaused ? (
+          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center overflow-hidden bg-[#0b0b0f]">
+            {brbImageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element -- arbitrary creator-provided BRB URL
+              <img
+                src={brbImageUrl}
+                alt=""
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'radial-gradient(ellipse at 30% 20%, rgba(245,158,11,0.35), transparent 55%), radial-gradient(ellipse at 70% 80%, rgba(244,63,94,0.25), transparent 50%), linear-gradient(160deg, #12121a 0%, #1a1410 45%, #0b0b0f 100%)',
+                }}
+              />
+            )}
+            <div className="absolute inset-0 bg-black/45" />
+            <div className="relative z-10 flex flex-col items-center gap-4 px-6 text-center">
+              <span className="flex size-20 items-center justify-center rounded-3xl bg-amber-500/95 shadow-lg shadow-amber-500/20">
+                <Coffee className="size-9 text-black" />
+              </span>
+              <div>
+                <p className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+                  {brbMessage || 'Be right back'}
+                </p>
+                <p className="mt-2 text-sm text-white/55">
+                  Stream is still live — hang tight
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {showStatusOverlay ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
             <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500">
               <Radio className="size-7 text-white" />
             </span>
-            <p className="text-base font-semibold text-white">
-              {status === 'ended'
-                ? 'Live is ended'
-                : status === 'connecting'
-                  ? 'Connecting…'
-                  : isHost
-                    ? 'You are live'
-                    : 'Waiting for the creator to start streaming…'}
-            </p>
+            <p className="text-base font-semibold text-white">{statusMessage}</p>
             {status === 'ended' && !isHost ? (
               <p className="text-[13px] text-white/45">
                 Taking you back home…
               </p>
             ) : null}
-            {isMockAgora(creds) && status !== 'ended' ? (
-              <p className="max-w-xs text-[12px] text-white/35">
-                Demo mode — set AGORA_APP_ID / AGORA_APP_CERTIFICATE on the API
-                to enable real video.
-              </p>
-            ) : null}
           </div>
         ) : null}
 
-        {liveId && status !== 'ended' ? (
+        {isMockAgora(creds) && status === 'live' && !isPaused && !isHost ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500">
+              <Radio className="size-7 text-white" />
+            </span>
+            <p className="text-base font-semibold text-white">
+              You&apos;re in the live
+            </p>
+            <p className="max-w-xs text-[12px] text-white/35">
+              Demo mode — set AGORA_APP_ID / AGORA_APP_CERTIFICATE on the API
+              to enable real video.
+            </p>
+          </div>
+        ) : null}
+
+        {liveId && status !== 'ended' && !isPractice ? (
           <LiveChatOverlay
             liveId={liveId}
             emojiPrice={emojiPrice}

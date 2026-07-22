@@ -111,8 +111,15 @@ function toAppNotification(item: AppNotificationItem): AppNotification {
         'scheduled' in data &&
         (data as { scheduled?: unknown }).scheduled === true
     )
+  const reminder =
+    item.type === 'LIVE' &&
+    data &&
+    typeof data === 'object' &&
+    ((data as { reminder?: unknown }).reminder === '1h' ||
+      (data as { reminder?: unknown }).reminder === '15m')
+      ? String((data as { reminder: string }).reminder)
+      : null
   const scheduledAt =
-    scheduled &&
     data &&
     typeof data === 'object' &&
     typeof (data as { scheduledAt?: unknown }).scheduledAt === 'string'
@@ -132,21 +139,26 @@ function toAppNotification(item: AppNotificationItem): AppNotification {
     title = `${base} ${relativeLiveEnded(when)}`
   }
 
-  const body = scheduledAt
-    ? scheduledLiveBody(scheduledAt, item.body)
-    : item.body
+  const body =
+    reminder && scheduledAt
+      ? scheduledLiveBody(scheduledAt, item.body)
+      : scheduled && scheduledAt
+        ? scheduledLiveBody(scheduledAt, item.body)
+        : item.body
 
   return {
     id: item.id,
     type: mapType(item.type),
     title,
-    body,
+    body: reminder
+      ? `${reminder === '1h' ? 'Reminder · 1 hour' : 'Reminder · 15 min'} · ${body}`
+      : body,
     createdAt: item.createdAt,
     read: item.read,
     href: item.href ?? undefined,
     meta: relativeTime(item.createdAt),
-    // A scheduled-live card is upcoming, not an active "join now" badge.
-    liveEnded: ended || scheduled,
+    // Schedule notice is upcoming; reminders and go-live stay actionable.
+    liveEnded: ended || (scheduled && !reminder),
   }
 }
 

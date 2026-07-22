@@ -3,16 +3,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarClock, Loader2, Lock, Radio, Wallet } from 'lucide-react'
+import {
+  Bell,
+  BellOff,
+  CalendarClock,
+  Loader2,
+  Lock,
+  Radio,
+  Wallet,
+} from 'lucide-react'
 import { ApiError } from '@/lib/api'
 import {
   getLive,
   joinLive,
+  notifyMeLive,
   payLiveWithRazorpay,
   payLiveWithWallet,
+  unnotifyMeLive,
   type AgoraCreds,
   type LiveDto,
 } from '@/lib/live'
+import {
+  formatPremiereWhen,
+  getCountdownParts,
+} from '@/lib/premiere-countdown'
 import { LiveRoom } from '@/components/live/LiveRoom'
 
 interface LiveViewProps {
@@ -22,40 +36,43 @@ interface LiveViewProps {
 type Phase =
   | 'loading'
   | 'scheduled'
+  | 'preparing'
   | 'subscribe'
   | 'payment'
   | 'granted'
   | 'ended'
   | 'error'
 
-function formatWhen(iso: string | null): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function formatCountdown(iso: string | null): string {
-  if (!iso) return ''
-  const target = new Date(iso).getTime()
-  if (Number.isNaN(target)) return ''
-  const diff = target - Date.now()
-  if (diff <= 0) return 'Starting soon…'
-  const totalMin = Math.floor(diff / 60000)
-  const days = Math.floor(totalMin / (60 * 24))
-  const hours = Math.floor((totalMin % (60 * 24)) / 60)
-  const mins = totalMin % 60
-  const secs = Math.floor((diff % 60000) / 1000)
-  if (days > 0) return `Starts in ${days}d ${hours}h`
-  if (hours > 0) return `Starts in ${hours}h ${mins}m`
-  if (totalMin > 0) return `Starts in ${mins}m ${secs}s`
-  return `Starts in ${secs}s`
+function CountdownBlocks({ iso }: { iso: string | null }) {
+  const parts = getCountdownParts(iso)
+  if (parts.done) {
+    return (
+      <p className="text-2xl font-extrabold text-white">Starting soon…</p>
+    )
+  }
+  const cells = [
+    ...(parts.days > 0 ? [{ label: 'Days', value: parts.days }] : []),
+    { label: 'Hrs', value: parts.hours },
+    { label: 'Min', value: parts.mins },
+    { label: 'Sec', value: parts.secs },
+  ]
+  return (
+    <div className="grid grid-cols-4 gap-2">
+      {cells.map((cell) => (
+        <div
+          key={cell.label}
+          className="rounded-xl border border-white/10 bg-black/30 px-1 py-2.5"
+        >
+          <p className="text-xl font-extrabold tabular-nums text-white sm:text-2xl">
+            {String(cell.value).padStart(2, '0')}
+          </p>
+          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">
+            {cell.label}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export function LiveView({ liveId }: LiveViewProps) {
@@ -66,7 +83,8 @@ export function LiveView({ liveId }: LiveViewProps) {
   const [price, setPrice] = useState<number>(0)
   const [error, setError] = useState<string | null>(null)
   const [paying, setPaying] = useState<'wallet' | 'razorpay' | null>(null)
-  // Drives the live countdown re-render each second.
+  const [notifyMe, setNotifyMe] = useState(false)
+  const [notifyBusy, setNotifyBusy] = useState(false)
   const [, setTick] = useState(0)
   const phaseRef = useRef<Phase>('loading')
   phaseRef.current = phase
@@ -85,29 +103,41 @@ export function LiveView({ liveId }: LiveViewProps) {
       }
     } catch (err) {
       const message = err instanceof ApiError ? err.message : ''
-      // Host hasn't started yet — keep the viewer in the waiting room.
       if (message.toLowerCase().includes('not started')) {
         setPhase('scheduled')
+        return
+      }
+      if (
+        message.toLowerCase().includes('preparing') ||
+        message.toLowerCase().includes('not public')
+      ) {
+        setPhase('preparing')
         return
       }
       try {
         const details = await getLive(liveId)
         setLive(details.live)
+        setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
+        if (
+          details.live.status === 'PRACTICE' ||
+          details.live.isPractice
+        ) {
+          setPhase('preparing')
+          return
+        }
       } catch {
         // ignore
       }
-      setError(
-        message || 'Could not join this live. Please try again.'
-      )
+      setError(message || 'Could not join this live. Please try again.')
       setPhase('error')
     }
   }, [liveId])
 
-  // Initial load: decide which screen to show based on status + access.
   const bootstrap = useCallback(async () => {
     try {
       const details = await getLive(liveId)
       setLive(details.live)
+      setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
       if (details.live.status === 'ENDED') {
         setPhase('ended')
         return
@@ -118,6 +148,13 @@ export function LiveView({ liveId }: LiveViewProps) {
       }
       if (details.live.status === 'SCHEDULED') {
         setPhase('scheduled')
+        return
+      }
+      if (
+        details.live.status === 'PRACTICE' ||
+        Boolean(details.live.isPractice)
+      ) {
+        setPhase('preparing')
         return
       }
       await attemptJoin()
@@ -135,15 +172,34 @@ export function LiveView({ liveId }: LiveViewProps) {
     void bootstrap()
   }, [bootstrap])
 
-  // While waiting for a scheduled live: tick the countdown + poll for start.
   useEffect(() => {
-    if (phase !== 'scheduled') return
-    const ticker = setInterval(() => setTick((t) => t + 1), 1000)
+    if (phase !== 'scheduled' && phase !== 'preparing') return
+    const ticker =
+      phase === 'scheduled'
+        ? setInterval(() => setTick((t) => t + 1), 1000)
+        : null
     const poll = setInterval(async () => {
       try {
         const details = await getLive(liveId)
-        if (phaseRef.current !== 'scheduled') return
+        if (
+          phaseRef.current !== 'scheduled' &&
+          phaseRef.current !== 'preparing'
+        ) {
+          return
+        }
         setLive(details.live)
+        setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
+        if (
+          details.live.status === 'PRACTICE' ||
+          details.live.isPractice
+        ) {
+          if (phaseRef.current !== 'preparing') setPhase('preparing')
+          return
+        }
+        if (details.live.status === 'SCHEDULED') {
+          if (phaseRef.current !== 'scheduled') setPhase('scheduled')
+          return
+        }
         if (details.live.status === 'LIVE') {
           await attemptJoin()
         } else if (details.live.status === 'ENDED') {
@@ -154,10 +210,31 @@ export function LiveView({ liveId }: LiveViewProps) {
       }
     }, 5000)
     return () => {
-      clearInterval(ticker)
+      if (ticker) clearInterval(ticker)
       clearInterval(poll)
     }
   }, [phase, liveId, attemptJoin])
+
+  async function toggleNotifyMe() {
+    if (notifyBusy) return
+    setNotifyBusy(true)
+    setError(null)
+    try {
+      if (notifyMe) {
+        const res = await unnotifyMeLive(liveId)
+        setNotifyMe(Boolean(res.notifyMe))
+      } else {
+        const res = await notifyMeLive(liveId)
+        setNotifyMe(Boolean(res.notifyMe))
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Could not update reminder'
+      )
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
 
   async function payWallet() {
     setPaying('wallet')
@@ -198,6 +275,8 @@ export function LiveView({ liveId }: LiveViewProps) {
   }
 
   function leave() {
+    setCreds(null)
+    setPhase('loading')
     router.push('/user')
   }
 
@@ -209,6 +288,12 @@ export function LiveView({ liveId }: LiveViewProps) {
         emojiPrice={live.emojiPrice}
         title={live.title}
         subtitle={live.creator?.name ? `${live.creator.name} · Live` : 'Live'}
+        initialPaused={Boolean(live.isPaused)}
+        initialBrbMessage={live.brbMessage}
+        initialBrbImageUrl={live.brbImageUrl}
+        initialLatencyMode={
+          live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
+        }
         onLeave={leave}
         onEnded={leave}
       />
@@ -225,6 +310,8 @@ export function LiveView({ liveId }: LiveViewProps) {
             <Lock className="size-6 text-white" />
           ) : phase === 'scheduled' ? (
             <CalendarClock className="size-6 text-white" />
+          ) : phase === 'preparing' ? (
+            <Loader2 className="size-6 animate-spin text-white" />
           ) : (
             <Radio className="size-6 text-white" />
           )}
@@ -241,7 +328,7 @@ export function LiveView({ liveId }: LiveViewProps) {
           <div className="mt-5 space-y-4">
             <div>
               <p className="text-[11px] font-semibold tracking-[0.16em] text-rose-300/80 uppercase">
-                Upcoming live
+                Premiere
               </p>
               <h1 className="mt-1 text-lg font-bold text-white">{live.title}</h1>
               <p className="mt-1 text-[13px] text-white/50">
@@ -251,11 +338,9 @@ export function LiveView({ liveId }: LiveViewProps) {
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-              <p className="text-2xl font-extrabold text-white">
-                {formatCountdown(live.scheduledAt)}
-              </p>
-              <p className="mt-1 text-[13px] text-white/45">
-                {formatWhen(live.scheduledAt)}
+              <CountdownBlocks iso={live.scheduledAt} />
+              <p className="mt-3 text-[13px] text-white/45">
+                {formatPremiereWhen(live.scheduledAt)}
               </p>
             </div>
             <p className="text-[12px] text-white/40">
@@ -263,10 +348,64 @@ export function LiveView({ liveId }: LiveViewProps) {
                 ? `Paid live · ₹${live.price ?? 0} — you'll be asked to pay when it starts`
                 : 'Free for subscribers'}
             </p>
+            <button
+              type="button"
+              disabled={notifyBusy}
+              onClick={() => void toggleNotifyMe()}
+              className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-full text-[14px] font-semibold transition disabled:opacity-50 ${
+                notifyMe
+                  ? 'border border-white/15 bg-white/10 text-white'
+                  : 'bg-white text-[#07070b] hover:bg-white/90'
+              }`}
+            >
+              {notifyBusy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : notifyMe ? (
+                <BellOff className="size-4" />
+              ) : (
+                <Bell className="size-4" />
+              )}
+              {notifyMe ? 'Reminded' : 'Notify Me'}
+            </button>
+            <p className="text-[12px] text-white/35">
+              {notifyMe
+                ? 'We’ll remind you in-app 1 hour and 15 minutes before go-live.'
+                : 'Get in-app reminders 1 hour and 15 minutes before this premiere.'}
+            </p>
             <p className="text-[12px] text-white/35">
               Keep this page open — you&apos;ll join automatically when{' '}
               {live.creator?.name ?? 'the creator'} starts.
             </p>
+            {error ? <p className="text-[13px] text-rose-400">{error}</p> : null}
+            <button
+              type="button"
+              onClick={leave}
+              className="text-[13px] text-white/40 transition hover:text-white/70"
+            >
+              Go back
+            </button>
+          </div>
+        ) : null}
+
+        {phase === 'preparing' ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.16em] text-amber-300/80 uppercase">
+                Preparing
+              </p>
+              <h1 className="mt-1 text-lg font-bold text-white">
+                {live?.title ?? 'Live'}
+              </h1>
+              <p className="mt-1 text-[13px] text-white/50">
+                Creator is preparing — hang tight until they go public.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+              <p className="text-[13px] text-white/70">
+                This warm-up is private. You&apos;ll be able to join once the
+                stream goes live to the audience.
+              </p>
+            </div>
             <button
               type="button"
               onClick={leave}
@@ -290,7 +429,9 @@ export function LiveView({ liveId }: LiveViewProps) {
               <p className="text-[13px] text-white/70">
                 This live is for subscribers only. Subscribe monthly to{' '}
                 {creatorName} to join
-                {live.accessType === 'PAID' ? ' (paid lives billed separately)' : ''}
+                {live.accessType === 'PAID'
+                  ? ' (paid lives billed separately)'
+                  : ''}
                 .
               </p>
             </div>
@@ -332,9 +473,7 @@ export function LiveView({ liveId }: LiveViewProps) {
                 ₹{price || live.price || 0}
               </p>
             </div>
-            {error ? (
-              <p className="text-[13px] text-rose-400">{error}</p>
-            ) : null}
+            {error ? <p className="text-[13px] text-rose-400">{error}</p> : null}
             <div className="grid gap-2.5">
               <button
                 type="button"

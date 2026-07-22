@@ -20,6 +20,8 @@ export interface LiveToast {
   accessType: 'FREE' | 'PAID'
   price: number | null
   creatorName?: string
+  /** Premiere reminder (1h / 15m) vs go-live toast. */
+  isReminder?: boolean
 }
 
 interface RealtimePayload {
@@ -93,7 +95,12 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
       const liveId = typeof data.liveId === 'string' ? data.liveId : null
       const ended = data.ended === true
       const scheduled = data.scheduled === true
-      if (liveId && !ended && !scheduled) {
+      const reminder =
+        data.reminder === '1h' || data.reminder === '15m'
+          ? (data.reminder as '1h' | '15m')
+          : null
+      // Toast for go-live and premiere reminders; skip schedule-created notices.
+      if (liveId && !ended && (!scheduled || reminder)) {
         set({
           liveToast: {
             liveId,
@@ -111,6 +118,7 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
               typeof data.creatorName === 'string'
                 ? data.creatorName
                 : undefined,
+            isReminder: Boolean(reminder),
           },
         })
       } else if (ended) {

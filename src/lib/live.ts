@@ -19,12 +19,30 @@ export interface LiveDto {
   price: number | null
   emojiPrice: number | null
   currency: string
-  status: 'SCHEDULED' | 'LIVE' | 'ENDED'
+  status: 'SCHEDULED' | 'PRACTICE' | 'LIVE' | 'ENDED'
+  /** Temporary A/V pause with BRB screen — session stays LIVE. */
+  isPaused?: boolean
+  /** Private warm-up — host only, not visible to viewers. */
+  isPractice?: boolean
+  /** Host-controlled Agora audience latency for the session. */
+  latencyMode?: 'ULTRA_LOW' | 'NORMAL'
+  brbMessage?: string | null
+  brbImageUrl?: string | null
+  pausedAt?: string | null
+  /** Subscriber opted in for 1h / 15m premiere reminders. */
+  notifyMe?: boolean
   scheduledAt: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
   creator?: LiveCreator
+}
+
+export type LiveLatencyMode = 'ULTRA_LOW' | 'NORMAL'
+
+export interface PauseLiveInput {
+  message?: string
+  imageUrl?: string | null
 }
 
 export interface AgoraCreds {
@@ -61,9 +79,24 @@ export function listUpcomingLives() {
 }
 
 export function getLive(id: string) {
-  return api<{ live: LiveDto; isSubscriber: boolean; hasAccess: boolean }>(
-    `/lives/${id}`
-  )
+  return api<{
+    live: LiveDto
+    isSubscriber: boolean
+    hasAccess: boolean
+    notifyMe: boolean
+  }>(`/lives/${id}`)
+}
+
+export function notifyMeLive(id: string) {
+  return api<{ live: LiveDto; notifyMe: boolean }>(`/lives/${id}/notify-me`, {
+    method: 'POST',
+  })
+}
+
+export function unnotifyMeLive(id: string) {
+  return api<{ live: LiveDto; notifyMe: boolean }>(`/lives/${id}/notify-me`, {
+    method: 'DELETE',
+  })
 }
 
 export function joinLive(id: string) {
@@ -134,6 +167,49 @@ export function startLive(creatorId: string, input: StartLiveInput) {
   )
 }
 
+export function startPractice(creatorId: string, input: StartLiveInput) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/creators/${creatorId}/live/practice`,
+    { method: 'POST', body: JSON.stringify(input) }
+  )
+}
+
+export function goPublicAdminLive(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/live/${liveId}/go-public`,
+    { method: 'POST' }
+  )
+}
+
+export function startPracticeMine(input: StartLiveInput) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    '/creators/me/live/practice',
+    { method: 'POST', body: JSON.stringify(input) }
+  )
+}
+
+export function goPublicLive(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/creators/me/live/${liveId}/go-public`,
+    { method: 'POST' }
+  )
+}
+
+/** Scheduled premiere → private warm-up on the same session. */
+export function enterPracticeMine(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/creators/me/live/${liveId}/practice`,
+    { method: 'POST' }
+  )
+}
+
+export function enterPracticeAdmin(liveId: string) {
+  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
+    `/admin/live/${liveId}/practice`,
+    { method: 'POST' }
+  )
+}
+
 export interface ScheduleLiveInput extends StartLiveInput {
   scheduledAt: string
 }
@@ -158,4 +234,44 @@ export function endLive(liveId: string) {
 
 export function listCreatorLives(creatorId: string) {
   return api<LiveDto[]>(`/admin/creators/${creatorId}/live`)
+}
+
+export function pauseCreatorLive(liveId: string, input: PauseLiveInput = {}) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/pause`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function resumeCreatorLive(liveId: string) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/resume`, {
+    method: 'POST',
+  })
+}
+
+export function pauseAdminLive(liveId: string, input: PauseLiveInput = {}) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/pause`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function resumeAdminLive(liveId: string) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/resume`, {
+    method: 'POST',
+  })
+}
+
+export function setLatencyModeMine(liveId: string, mode: LiveLatencyMode) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/latency`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  })
+}
+
+export function setLatencyModeAdmin(liveId: string, mode: LiveLatencyMode) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/latency`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  })
 }

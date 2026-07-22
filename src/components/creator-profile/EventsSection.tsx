@@ -3,9 +3,12 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { motion, useReducedMotion } from 'framer-motion'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Bell, BellOff, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 
 import type { PublicEvent } from '@/data/public-creator'
+import { ApiError } from '@/lib/api'
+import { notifyMeLive, unnotifyMeLive } from '@/lib/live'
+import { formatCountdownShort } from '@/lib/premiere-countdown'
 import { cn } from '@/lib/utils'
 
 export interface EventsSectionProps {
@@ -42,6 +45,11 @@ function TicketCard({
 }) {
   const { month, day, year } = partsFromEvent(event)
   const isLive = event.kind === 'LIVE'
+  const isScheduled =
+    isLive &&
+    event.liveStatus !== 'LIVE' &&
+    event.liveStatus !== 'ENDED' &&
+    Boolean(event.liveId)
   const liveHref = event.liveId
     ? `/live/${event.liveId}`
     : event.ticketUrl || '#'
@@ -51,6 +59,34 @@ function TicketCard({
       ? 'Join'
       : 'Details'
     : 'Tickets'
+
+  const [notifyMe, setNotifyMe] = useState(false)
+  const [notifyBusy, setNotifyBusy] = useState(false)
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    if (!isScheduled) return
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [isScheduled])
+
+  async function toggleNotify() {
+    if (!event.liveId || notifyBusy) return
+    setNotifyBusy(true)
+    try {
+      const res = notifyMe
+        ? await unnotifyMeLive(event.liveId)
+        : await notifyMeLive(event.liveId)
+      setNotifyMe(Boolean(res.notifyMe))
+    } catch (err) {
+      console.error(
+        err instanceof ApiError ? err.message : 'Notify Me failed',
+        err
+      )
+    } finally {
+      setNotifyBusy(false)
+    }
+  }
 
   const ctaClass =
     'inline-flex h-8 w-fit items-center justify-center rounded-full border border-white/40 px-4 text-[12px] font-medium text-white transition hover:bg-white hover:text-black'
@@ -102,7 +138,11 @@ function TicketCard({
                     : 'bg-white/10 text-rose-200'
                 )}
               >
-                {event.liveStatus === 'LIVE' ? 'Live' : 'Soon'}
+                {event.liveStatus === 'LIVE'
+                  ? 'Live'
+                  : isScheduled
+                    ? formatCountdownShort(event.startsAt ?? null)
+                    : 'Soon'}
               </span>
             ) : null}
           </div>
@@ -110,20 +150,44 @@ function TicketCard({
             {event.location}
           </p>
         </div>
-        {isLive ? (
-          <Link href={liveHref} className={ctaClass}>
-            {ctaLabel}
-          </Link>
-        ) : (
-          <a
-            href={ticketHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={ctaClass}
-          >
-            {ctaLabel}
-          </a>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {isLive ? (
+            <Link href={liveHref} className={ctaClass}>
+              {ctaLabel}
+            </Link>
+          ) : (
+            <a
+              href={ticketHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={ctaClass}
+            >
+              {ctaLabel}
+            </a>
+          )}
+          {isScheduled ? (
+            <button
+              type="button"
+              disabled={notifyBusy}
+              onClick={() => void toggleNotify()}
+              className={cn(
+                'inline-flex h-8 items-center gap-1 rounded-full px-3 text-[12px] font-medium transition disabled:opacity-50',
+                notifyMe
+                  ? 'border border-white/30 text-white'
+                  : 'bg-white text-black hover:bg-white/90'
+              )}
+            >
+              {notifyBusy ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : notifyMe ? (
+                <BellOff className="size-3" />
+              ) : (
+                <Bell className="size-3" />
+              )}
+              {notifyMe ? 'Reminded' : 'Notify Me'}
+            </button>
+          ) : null}
+        </div>
       </div>
     </motion.article>
   )

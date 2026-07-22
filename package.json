@@ -8,9 +8,11 @@
   ],
   "scripts": {
     "dev": "npm run build:shared && next dev --turbopack -p 3000",
+    "dev:pwa": "npm run build:shared && ENABLE_PWA=1 next dev -p 3000",
     "build:shared": "npm run build -w @link-me/shared",
     "build": "npm run build:shared && next build",
     "start": "next start -p 3000",
+    "preview:pwa": "npm run build && npm start",
     "lint": "oxlint src"
   },
   "dependencies": {

@@ -64,7 +64,9 @@ Ensure the backend `CORS_ORIGIN` includes your frontend URL.
 ## Scripts
 
 ```bash
-npm run dev          # Build shared types + start dev server
+npm run dev          # Fast Turbopack dev (PWA disabled)
+npm run dev:pwa      # Webpack dev with PWA install / service worker
+npm run preview:pwa  # Production build + start (closest to Vercel PWA)
 npm run build        # Production build
 npm run start        # Start production server
 npm run lint         # oxlint
@@ -77,4 +79,4 @@ npm run lint         # oxlint
 - Tailwind CSS 4, shadcn/ui
 - Zustand, TanStack React Query
 - Socket.IO client (chat, calls, live)
-- Serwist PWA (production builds only)
+- Serwist PWA (production, or locally via `npm run dev:pwa` / `npm run preview:pwa`)
