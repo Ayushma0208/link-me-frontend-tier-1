@@ -14,10 +14,16 @@ import {
   startPracticeMine,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import { formatCurrency } from '@/lib/utils'
 
-type LiveResponse = { live: LiveDto; agora?: AgoraCreds; notified?: number }
+type LiveResponse = {
+  live: LiveDto
+  agora?: AgoraCreds
+  streamQuality?: StreamQualityPolicy
+  notified?: number
+}
 
 function unwrapLives(response: LiveDto[] | { items?: LiveDto[]; lives?: LiveDto[] }) {
   if (Array.isArray(response)) return response
@@ -32,9 +38,11 @@ export function LiveEventsStudio() {
   const [price, setPrice] = useState('99')
   const [emojiPrice, setEmojiPrice] = useState('10')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [room, setRoom] = useState<{ live: LiveDto; agora: AgoraCreds } | null>(
-    null
-  )
+  const [room, setRoom] = useState<{
+    live: LiveDto
+    agora: AgoraCreds
+    streamQuality?: StreamQualityPolicy
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const livesQuery = useQuery({
@@ -65,7 +73,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -75,7 +88,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -105,7 +123,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -115,7 +138,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -173,6 +201,7 @@ export function LiveEventsStudio() {
         initialLatencyMode={
           room.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
         }
+        streamQuality={room.streamQuality}
         isPractice={practicing}
         onLeave={() => setRoom(null)}
         onEnd={() => endLive.mutate(room.live.id)}

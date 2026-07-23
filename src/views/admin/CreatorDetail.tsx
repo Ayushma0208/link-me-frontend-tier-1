@@ -36,6 +36,7 @@ import {
   startScheduledLive,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import { LiveRoom } from '@/components/live/LiveRoom'
 import type { AdminCreator, AdminRevenue } from '@/types/admin'
@@ -257,6 +258,8 @@ export function AdminCreatorDetail() {
   const [livePrice, setLivePrice] = useState('99')
   const [emojiPrice, setEmojiPrice] = useState('9')
   const [hostCreds, setHostCreds] = useState<AgoraCreds | null>(null)
+  const [hostStreamQuality, setHostStreamQuality] =
+    useState<StreamQualityPolicy | null>(null)
   const [hostLive, setHostLive] = useState<LiveDto | null>(null)
 
   const { data: creator, isLoading } = useQuery({
@@ -587,6 +590,7 @@ export function AdminCreatorDetail() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash(`Live started — ${res.notified} subscriber(s) notified`)
     },
@@ -598,6 +602,7 @@ export function AdminCreatorDetail() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash('Practice started — not visible to fans')
     },
@@ -627,6 +632,7 @@ export function AdminCreatorDetail() {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setLiveOpen(false)
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash(`Live started — ${res.notified} subscriber(s) notified`)
     },
@@ -656,6 +662,7 @@ export function AdminCreatorDetail() {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setLiveOpen(false)
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash('Practice started — not visible to fans')
     },
@@ -678,6 +685,7 @@ export function AdminCreatorDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(null)
+      setHostStreamQuality(null)
       setHostLive(null)
       flash('Live ended')
     },
@@ -1978,11 +1986,13 @@ export function AdminCreatorDetail() {
           initialLatencyMode={
             hostLive.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
           }
+          streamQuality={hostStreamQuality ?? undefined}
           isPractice={
             Boolean(hostLive.isPractice) || hostLive.status === 'PRACTICE'
           }
           onLeave={() => {
             setHostCreds(null)
+            setHostStreamQuality(null)
             setHostLive(null)
           }}
           onEnd={() => stopLive.mutate(hostLive.id)}
