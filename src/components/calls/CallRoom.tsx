@@ -7,10 +7,11 @@ import type {
   ICameraVideoTrack,
   IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Mic, MicOff, PhoneOff } from 'lucide-react'
+import { Mic, MicOff, PhoneOff, SwitchCamera } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 
 import { api } from '@/lib/api'
+import { flipCameraTrack } from '@/lib/agora-camera'
 import {
   connectCallSocket,
   type AgoraPayload,
@@ -83,6 +84,7 @@ export function CallRoom({
     initialCallType ?? 'VIDEO'
   )
   const [muted, setMuted] = useState(false)
+  const [flipBusy, setFlipBusy] = useState(false)
   const [remoteConnected, setRemoteConnected] = useState(false)
   const [micReady, setMicReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -470,6 +472,28 @@ export function CallRoom({
     setMuted(next)
   }
 
+  async function handleFlipCamera() {
+    if (flipBusy || callType !== 'VIDEO') return
+    const cam = videoTrackRef.current
+    if (!cam) return
+    setFlipBusy(true)
+    try {
+      const result = await flipCameraTrack(cam)
+      if (!result.ok) {
+        console.warn('Flip camera:', result.message)
+        return
+      }
+      if (localRef.current) {
+        localRef.current.replaceChildren()
+        cam.play(localRef.current)
+      }
+    } catch (err) {
+      console.error('Failed to flip camera', err)
+    } finally {
+      setFlipBusy(false)
+    }
+  }
+
   const minutes = Math.floor(elapsed / 60)
   const seconds = elapsed % 60
 
@@ -556,6 +580,17 @@ export function CallRoom({
                   <Mic className="h-5 w-5" />
                 )}
                 {muted ? 'Unmute' : 'Mute'}
+              </Button>
+            ) : null}
+            {phase === 'active' && callType === 'VIDEO' ? (
+              <Button
+                variant="secondary"
+                disabled={flipBusy}
+                onClick={() => void handleFlipCamera()}
+                className="gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50"
+              >
+                <SwitchCamera className="h-5 w-5" />
+                {flipBusy ? 'Flipping…' : 'Flip'}
               </Button>
             ) : null}
             <Button

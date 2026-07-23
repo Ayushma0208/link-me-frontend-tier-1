@@ -60,8 +60,8 @@ export interface StreamQualityPolicy {
 
 export const DEFAULT_STREAM_QUALITY: StreamQualityPolicy = {
   dualStream: true,
-  high: { width: 1280, height: 720, bitrate: 1500, frameRate: 24 },
-  low: { width: 640, height: 360, bitrate: 400, frameRate: 15 },
+  high: { width: 1920, height: 1080, bitrate: 2500, frameRate: 30 },
+  low: { width: 426, height: 240, bitrate: 300, frameRate: 15 },
   recommended: 'HIGH',
 }
 

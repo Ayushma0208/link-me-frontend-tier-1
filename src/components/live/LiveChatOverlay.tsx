@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
-import { Send, Smile } from 'lucide-react'
+import { Gift, Pin, PinOff, Send, Smile } from 'lucide-react'
 import {
   connectLiveSocket,
   type LiveChatMessage,
 } from '@/lib/live-socket'
-import { cn } from '@/lib/utils'
+import { LIVE_GIFTS, getLiveGift } from '@/lib/live-gifts'
+import { cn, formatCurrency } from '@/lib/utils'
 
 const EMOJI_SET = [
   '❤️',
@@ -24,10 +25,21 @@ const EMOJI_SET = [
   '🥰',
 ]
 
+type PickerMode = 'none' | 'emoji' | 'gift'
+
 interface LiveChatOverlayProps {
   liveId: string
   emojiPrice: number | null
   isHost: boolean
+}
+
+function messagePreview(msg: LiveChatMessage): string {
+  if (msg.kind === 'EMOJI') return msg.body
+  if (msg.kind === 'GIFT') {
+    const gift = getLiveGift(msg.giftId ?? msg.body)
+    return `${msg.giftEmoji ?? gift?.emoji ?? '🎁'} ${msg.giftLabel ?? gift?.label ?? 'Gift'}`
+  }
+  return msg.body
 }
 
 export function LiveChatOverlay({
@@ -36,15 +48,14 @@ export function LiveChatOverlay({
   isHost,
 }: LiveChatOverlayProps) {
   const [messages, setMessages] = useState<LiveChatMessage[]>([])
+  const [pinned, setPinned] = useState<LiveChatMessage | null>(null)
   const [draft, setDraft] = useState('')
-  const [showEmojis, setShowEmojis] = useState(false)
+  const [picker, setPicker] = useState<PickerMode>('none')
   const [error, setError] = useState<string | null>(null)
-  const [burst, setBurst] = useState<{ id: number; emoji: string } | null>(null)
   const [sending, setSending] = useState(false)
   const [joined, setJoined] = useState(false)
   const socketRef = useRef<Socket | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const burstId = useRef(0)
   const joinedRef = useRef(false)
 
   useEffect(() => {
@@ -56,12 +67,16 @@ export function LiveChatOverlay({
     socketRef.current = socket
     joinedRef.current = false
     setJoined(false)
+    setPinned(null)
 
     const join = () => {
       socket.emit('live:join', { liveId })
     }
 
-    const onJoined = (payload: { messages?: LiveChatMessage[] }) => {
+    const onJoined = (payload: {
+      messages?: LiveChatMessage[]
+      pinnedMessage?: LiveChatMessage | null
+    }) => {
       joinedRef.current = true
       const history = Array.isArray(payload.messages) ? payload.messages : []
       setMessages((prev) => {
@@ -72,6 +87,9 @@ export function LiveChatOverlay({
           .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
           .slice(-80)
       })
+      if (payload.pinnedMessage !== undefined) {
+        setPinned(payload.pinnedMessage ?? null)
+      }
       setJoined(true)
       setError(null)
     }
@@ -83,13 +101,11 @@ export function LiveChatOverlay({
       })
     }
 
-    const onBurst = (payload: { emoji?: string }) => {
-      if (!payload.emoji) return
-      burstId.current += 1
-      setBurst({ id: burstId.current, emoji: payload.emoji })
-      window.setTimeout(() => {
-        setBurst((b) => (b?.id === burstId.current ? null : b))
-      }, 1800)
+    const onPinned = (payload: {
+      liveId?: string
+      message?: LiveChatMessage | null
+    }) => {
+      setPinned(payload.message ?? null)
     }
 
     const onLiveError = (payload: { message?: string }) => {
@@ -99,7 +115,7 @@ export function LiveChatOverlay({
 
     socket.on('live:joined', onJoined)
     socket.on('live:message', onMessage)
-    socket.on('live:emoji-burst', onBurst)
+    socket.on('live:pinned', onPinned)
     socket.on('live:error', onLiveError)
     socket.on('connect', join)
     socket.on('reconnect', join)
@@ -117,7 +133,7 @@ export function LiveChatOverlay({
       window.clearInterval(retry)
       socket.off('live:joined', onJoined)
       socket.off('live:message', onMessage)
-      socket.off('live:emoji-burst', onBurst)
+      socket.off('live:pinned', onPinned)
       socket.off('live:error', onLiveError)
       socket.off('connect', join)
       socket.off('reconnect', join)
@@ -150,9 +166,30 @@ export function LiveChatOverlay({
     }
     setSending(true)
     setError(null)
-    setShowEmojis(false)
+    setPicker('none')
     socketRef.current?.emit('live:emoji', { liveId, emoji })
     setSending(false)
+  }
+
+  function sendGift(giftId: string) {
+    if (sending) return
+    setSending(true)
+    setError(null)
+    setPicker('none')
+    socketRef.current?.emit('live:gift', { liveId, giftId })
+    setSending(false)
+  }
+
+  function pinMessage(messageId: string) {
+    if (!isHost) return
+    setError(null)
+    socketRef.current?.emit('live:pin', { liveId, messageId })
+  }
+
+  function unpinMessage() {
+    if (!isHost) return
+    setError(null)
+    socketRef.current?.emit('live:unpin', { liveId })
   }
 
   const tipLabel =
@@ -164,37 +201,105 @@ export function LiveChatOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col justify-end pb-4 pt-24">
-      {burst ? (
-        <div
-          key={burst.id}
-          className="pointer-events-none absolute bottom-28 right-8 animate-bounce text-5xl"
-          aria-hidden
-        >
-          {burst.emoji}
+      {pinned ? (
+        <div className="pointer-events-auto mb-2 px-3 sm:max-w-md">
+          <div className="flex items-start gap-2 rounded-2xl border border-amber-400/35 bg-amber-500/20 px-2.5 py-2 shadow-sm backdrop-blur-md">
+            <Pin className="mt-0.5 size-3.5 shrink-0 text-amber-200" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold text-amber-100">
+                Pinned · {pinned.user.name}
+              </p>
+              <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-white">
+                {messagePreview(pinned)}
+              </p>
+            </div>
+            {isHost ? (
+              <button
+                type="button"
+                onClick={unpinMessage}
+                className="flex size-7 shrink-0 items-center justify-center rounded-full text-amber-100/80 transition hover:bg-white/10 hover:text-white"
+                aria-label="Unpin message"
+                title="Unpin"
+              >
+                <PinOff className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
       <div
         ref={listRef}
-        className="pointer-events-none mb-3 max-h-[42vh] space-y-1.5 overflow-y-auto px-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:max-w-md [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          'mb-3 max-h-[42vh] space-y-1.5 overflow-y-auto px-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:max-w-md [&::-webkit-scrollbar]:hidden',
+          isHost ? 'pointer-events-auto' : 'pointer-events-none'
+        )}
       >
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className="flex items-end gap-2 rounded-2xl bg-black/50 px-2.5 py-1.5 shadow-sm backdrop-blur-md"
-          >
-            <span className="shrink-0 text-[12px] font-bold text-white">
-              {msg.user.name}
-            </span>
-            {msg.kind === 'EMOJI' ? (
-              <span className="text-[20px] leading-none">{msg.body}</span>
-            ) : (
-              <span className="min-w-0 text-[13px] leading-snug text-white/90">
-                {msg.body}
+        {messages.map((msg) => {
+          const gift =
+            msg.kind === 'GIFT'
+              ? getLiveGift(msg.giftId ?? msg.body)
+              : undefined
+          const giftEmoji = msg.giftEmoji ?? gift?.emoji
+          const giftLabel = msg.giftLabel ?? gift?.label ?? 'Gift'
+          const isPinned = pinned?.id === msg.id
+          return (
+            <div
+              key={msg.id}
+              className={cn(
+                'flex items-end gap-2 rounded-2xl bg-black/50 px-2.5 py-1.5 shadow-sm backdrop-blur-md',
+                isPinned && 'ring-1 ring-amber-400/40'
+              )}
+            >
+              <span className="shrink-0 text-[12px] font-bold text-white">
+                {msg.user.name}
               </span>
-            )}
-          </div>
-        ))}
+              {msg.kind === 'EMOJI' ? (
+                <span className="min-w-0 flex-1 text-[20px] leading-none">
+                  {msg.body}
+                </span>
+              ) : msg.kind === 'GIFT' ? (
+                <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-snug text-white/90">
+                  <span className="text-[18px] leading-none">
+                    {giftEmoji ?? '🎁'}
+                  </span>
+                  <span>{giftLabel}</span>
+                  {msg.amountCharged > 0 ? (
+                    <span className="text-[11px] text-amber-200/90">
+                      {formatCurrency(msg.amountCharged)}
+                    </span>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1 text-[13px] leading-snug text-white/90">
+                  {msg.body}
+                </span>
+              )}
+              {isHost ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    isPinned ? unpinMessage() : pinMessage(msg.id)
+                  }
+                  className={cn(
+                    'mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full transition',
+                    isPinned
+                      ? 'bg-amber-400/30 text-amber-100'
+                      : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'
+                  )}
+                  aria-label={isPinned ? 'Unpin message' : 'Pin message'}
+                  title={isPinned ? 'Unpin' : 'Pin'}
+                >
+                  {isPinned ? (
+                    <PinOff className="size-3.5" />
+                  ) : (
+                    <Pin className="size-3.5" />
+                  )}
+                </button>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
 
       <div className="pointer-events-auto px-3 sm:max-w-md">
@@ -208,7 +313,7 @@ export function LiveChatOverlay({
             Connecting to live chat…
           </p>
         ) : null}
-        {showEmojis ? (
+        {picker === 'emoji' ? (
           <div className="mb-2 grid grid-cols-6 gap-1.5 rounded-2xl border border-white/15 bg-black/70 p-2 backdrop-blur-md">
             {EMOJI_SET.map((emoji) => (
               <button
@@ -221,6 +326,27 @@ export function LiveChatOverlay({
                 <span className="text-[22px] leading-none">{emoji}</span>
                 <span className="mt-0.5 text-[9px] font-medium text-white/50">
                   {tipLabel}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {picker === 'gift' ? (
+          <div className="mb-2 grid grid-cols-5 gap-1.5 rounded-2xl border border-white/15 bg-black/70 p-2 backdrop-blur-md">
+            {LIVE_GIFTS.map((gift) => (
+              <button
+                key={gift.id}
+                type="button"
+                disabled={sending}
+                onClick={() => sendGift(gift.id)}
+                className="flex flex-col items-center rounded-xl px-1 py-1.5 transition hover:bg-white/10"
+              >
+                <span className="text-[22px] leading-none">{gift.emoji}</span>
+                <span className="mt-0.5 text-[9px] font-medium text-white/70">
+                  {gift.label}
+                </span>
+                <span className="text-[9px] font-medium text-amber-200/80">
+                  {isHost ? 'Free' : formatCurrency(gift.price)}
                 </span>
               </button>
             ))}
@@ -242,10 +368,27 @@ export function LiveChatOverlay({
           />
           <button
             type="button"
-            onClick={() => setShowEmojis((v) => !v)}
+            onClick={() =>
+              setPicker((v) => (v === 'gift' ? 'none' : 'gift'))
+            }
             className={cn(
               'flex size-9 shrink-0 items-center justify-center rounded-full transition',
-              showEmojis
+              picker === 'gift'
+                ? 'bg-white/20 text-white'
+                : 'text-white/70 hover:bg-white/10'
+            )}
+            aria-label="Gifts"
+          >
+            <Gift className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setPicker((v) => (v === 'emoji' ? 'none' : 'emoji'))
+            }
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full transition',
+              picker === 'emoji'
                 ? 'bg-white/20 text-white'
                 : 'text-white/70 hover:bg-white/10'
             )}
@@ -263,9 +406,13 @@ export function LiveChatOverlay({
             <Send className="size-3.5" />
           </button>
         </div>
-        {!isHost && emojiPrice != null && emojiPrice > 0 ? (
+        {!isHost ? (
           <p className="mt-1.5 px-1 text-[10px] text-white/40">
-            Comments free · Emojis ₹{emojiPrice} each (wallet)
+            Comments free
+            {emojiPrice != null && emojiPrice > 0
+              ? ` · Emojis ₹${emojiPrice}`
+              : ''}{' '}
+            · Gifts from wallet
           </p>
         ) : null}
       </div>
