@@ -29,6 +29,11 @@ import {
   type LiveLatencyPayload,
 } from '@/lib/live-socket'
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
+import {
+  StreamHealthDashboard,
+  stabilityFrom,
+  type StreamHealthMetrics,
+} from '@/components/live/StreamHealthDashboard'
 
 interface LiveRoomProps {
   creds: AgoraCreds
@@ -158,6 +163,11 @@ export function LiveRoom({
   const [latencyBusy, setLatencyBusy] = useState(false)
   /** Viewer-only: tab/app minimized — remote video off, audio still playing. */
   const [audioOnlyMode, setAudioOnlyMode] = useState(false)
+  /** Host-only: real-time Agora send stats for the health dashboard. */
+  const [healthMetrics, setHealthMetrics] = useState<StreamHealthMetrics | null>(
+    null
+  )
+  const [healthExpanded, setHealthExpanded] = useState(false)
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
@@ -165,6 +175,9 @@ export function LiveRoom({
   const endedRef = useRef(false)
   const leavingRef = useRef(false)
   const backgroundAudioRef = useRef(false)
+  const uplinkQualityRef = useRef<number | null>(null)
+  const isPausedRef = useRef(isPaused)
+  isPausedRef.current = isPaused
   const latencyModeRef = useRef(latencyMode)
   latencyModeRef.current = latencyMode
 
@@ -219,6 +232,9 @@ export function LiveRoom({
     endedRef.current = true
     backgroundAudioRef.current = false
     setAudioOnlyMode(false)
+    setHealthMetrics(null)
+    setHealthExpanded(false)
+    uplinkQualityRef.current = null
     setIsPaused(false)
     setStatus('ended')
   }
@@ -565,6 +581,15 @@ export function LiveRoom({
       })
     }
 
+    /** Host: track uplink for the stream health dashboard. */
+    function attachHostUplinkMonitoring(client: IAgoraRTCClient) {
+      if (!isHost) return
+      client.on('network-quality', (stats) => {
+        if (!mounted || leavingRef.current) return
+        uplinkQualityRef.current = stats.uplinkNetworkQuality
+      })
+    }
+
     /** Host may already be publishing — remotes can appear slightly after join. */
     async function subscribeExistingRemotes(client: IAgoraRTCClient) {
       for (const user of client.remoteUsers) {
@@ -655,6 +680,7 @@ export function LiveRoom({
         })
 
         attachNetworkQualityAdaptation(client)
+        attachHostUplinkMonitoring(client)
         detachBackgroundAudio = attachBackgroundAudioMode(client)
 
         await joinChannel(client)
@@ -742,6 +768,8 @@ export function LiveRoom({
       detachBackgroundAudio?.()
       backgroundAudioRef.current = false
       setAudioOnlyMode(false)
+      setHealthMetrics(null)
+      uplinkQualityRef.current = null
       if (stuckTimer != null) window.clearTimeout(stuckTimer)
       const client = clientRef.current
       clientRef.current = null
@@ -756,10 +784,89 @@ export function LiveRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- join once per channel/uid
   }, [agoraJoinKey, isHost])
 
+  // Host: poll Agora local send stats for the stream health dashboard.
+  useEffect(() => {
+    if (!isHost || status === 'ended') {
+      if (status === 'ended') setHealthMetrics(null)
+      return
+    }
+
+    if (isMockAgora(creds) || status === 'connecting') {
+      setHealthMetrics({
+        sendBitrateBps: null,
+        sendFps: null,
+        sendWidth: null,
+        sendHeight: null,
+        packetLossPercent: null,
+        rttMs: null,
+        uplinkQuality: null,
+        stability: isPausedRef.current ? 'paused' : 'unknown',
+        paused: isPausedRef.current,
+      })
+      return
+    }
+
+    const normalizeLossPercent = (raw: number | undefined): number | null => {
+      if (raw == null || !Number.isFinite(raw) || raw < 0) return null
+      // Agora may report 0–1 fraction or already-as-percent.
+      return raw <= 1 ? raw * 100 : raw
+    }
+
+    const tick = () => {
+      const client = clientRef.current
+      if (!client || leavingRef.current || endedRef.current) return
+      const paused = isPausedRef.current
+      try {
+        const video = client.getLocalVideoStats()
+        const rtc = client.getRTCStats()
+        const uplink = uplinkQualityRef.current
+        const packetLossPercent = paused
+          ? null
+          : normalizeLossPercent(video?.currentPacketLossRate)
+        const rttMs = paused
+          ? null
+          : typeof rtc?.RTT === 'number' && Number.isFinite(rtc.RTT)
+            ? rtc.RTT
+            : typeof video?.sendRttMs === 'number' &&
+                Number.isFinite(video.sendRttMs)
+              ? video.sendRttMs
+              : null
+
+        setHealthMetrics({
+          sendBitrateBps: paused ? null : (video?.sendBitrate ?? null),
+          sendFps: paused
+            ? null
+            : (video?.sendFrameRate ?? video?.captureFrameRate ?? null),
+          sendWidth: paused ? null : (video?.sendResolutionWidth ?? null),
+          sendHeight: paused ? null : (video?.sendResolutionHeight ?? null),
+          packetLossPercent,
+          rttMs,
+          uplinkQuality: uplink,
+          stability: stabilityFrom({
+            uplinkQuality: uplink,
+            packetLossPercent: packetLossPercent ?? 0,
+            rttMs: rttMs ?? 0,
+            paused,
+          }),
+          paused,
+        })
+      } catch (err) {
+        console.warn('Stream health poll failed', err)
+      }
+    }
+
+    tick()
+    const interval = window.setInterval(tick, 1000)
+    return () => window.clearInterval(interval)
+  }, [agoraJoinKey, creds, isHost, status])
+
   async function cleanup() {
     leavingRef.current = true
     backgroundAudioRef.current = false
     setAudioOnlyMode(false)
+    setHealthMetrics(null)
+    setHealthExpanded(false)
+    uplinkQualityRef.current = null
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
         navigator.mediaSession.playbackState = 'none'
@@ -869,7 +976,7 @@ export function LiveRoom({
         : 'Connecting to stream…'
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-black">
       <div className="relative z-30 flex items-center justify-between gap-3 p-4">
         <div className="flex items-center gap-2.5 min-w-0">
           {status === 'ended' ? (
@@ -900,6 +1007,13 @@ export function LiveRoom({
               Live
             </span>
           )}
+          {isHost && status !== 'ended' ? (
+            <StreamHealthDashboard
+              metrics={healthMetrics}
+              expanded={healthExpanded}
+              onToggle={() => setHealthExpanded((open) => !open)}
+            />
+          ) : null}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle ? (
