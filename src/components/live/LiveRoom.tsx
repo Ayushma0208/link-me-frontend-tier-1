@@ -7,11 +7,26 @@ import AgoraRTC, {
   type ICameraVideoTrack,
   type IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Clapperboard, Coffee, Headphones, Play, Radio, SwitchCamera, X } from 'lucide-react'
+import {
+  Clapperboard,
+  Coffee,
+  Copy,
+  Headphones,
+  Link2,
+  Loader2,
+  Play,
+  Radio,
+  SwitchCamera,
+  X,
+} from 'lucide-react'
 import {
   DEFAULT_STREAM_QUALITY,
+  buildLiveInviteUrl,
+  disableLiveInvite,
+  enableLiveInvite,
   getLive,
   isMockAgora,
+  leaveLive,
   pauseCreatorLive,
   resumeCreatorLive,
   setLatencyModeMine,
@@ -67,8 +82,24 @@ interface LiveRoomProps {
   onSetLatency?: (mode: LiveLatencyMode) => Promise<{ live: LiveDto }>
   /** Private warm-up — host only until go-public. */
   isPractice?: boolean
+  /** Seed invite-only flag when host re-enters. */
+  initialInviteEnabled?: boolean
+  initialInvitePrice?: number | null
+  /** Override invite APIs (e.g. admin host). */
+  onEnableInvite?: (invitePrice?: number | null) => Promise<{
+    live: LiveDto
+    inviteToken: string
+  }>
+  onDisableInvite?: () => Promise<{ live: LiveDto }>
   /** Host flips practice → public LIVE (same Agora channel). */
   onGoPublic?: () => Promise<{ live: LiveDto }>
+  /** Viewer per-minute billing seed from join grant. */
+  initialBilling?: {
+    mode: 'PER_MINUTE'
+    pricePerMinute: number
+    heldMinutes: number
+    currency: string
+  } | null
 }
 
 /** Agora audience level: 2 = ultra-low, 1 = low (normal/stable). */
@@ -145,7 +176,12 @@ export function LiveRoom({
   onResume,
   onSetLatency,
   isPractice: isPracticeProp = false,
+  initialInviteEnabled = false,
+  initialInvitePrice = null,
+  onEnableInvite,
+  onDisableInvite,
   onGoPublic,
+  initialBilling = null,
 }: LiveRoomProps) {
   const isHost = creds.role === 'host'
   const streamQuality = streamQualityProp ?? DEFAULT_STREAM_QUALITY
@@ -162,7 +198,8 @@ export function LiveRoom({
   const [status, setStatus] = useState<
     'connecting' | 'live' | 'waiting' | 'ended'
   >('connecting')
-  const [, setHasVideoEl] = useState(false)
+  const [hasVideoEl, setHasVideoEl] = useState(false)
+  const [waitingForHostVideo, setWaitingForHostVideo] = useState(false)
   const [isPaused, setIsPaused] = useState(initialPaused)
   const [isPractice, setIsPractice] = useState(isPracticeProp)
   const [latencyMode, setLatencyMode] =
@@ -173,10 +210,34 @@ export function LiveRoom({
   const [brbImageUrl, setBrbImageUrl] = useState<string | null>(
     initialBrbImageUrl
   )
+  const [billingInfo, setBillingInfo] = useState<{
+    pricePerMinute: number
+    billedMinutes: number
+    heldMinutes: number
+    totalAmount: string
+    paused?: boolean
+  } | null>(
+    initialBilling
+      ? {
+          pricePerMinute: initialBilling.pricePerMinute,
+          billedMinutes: 0,
+          heldMinutes: initialBilling.heldMinutes,
+          totalAmount: '0.00',
+        }
+      : null
+  )
+  const [billingLow, setBillingLow] = useState(false)
   const [brbBusy, setBrbBusy] = useState(false)
   const [goPublicBusy, setGoPublicBusy] = useState(false)
   const [latencyBusy, setLatencyBusy] = useState(false)
   const [flipBusy, setFlipBusy] = useState(false)
+  const [inviteEnabled, setInviteEnabled] = useState(initialInviteEnabled)
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+  const [invitePrice, setInvitePrice] = useState<number | null>(
+    initialInvitePrice != null ? Number(initialInvitePrice) : null
+  )
+  const [inviteBusy, setInviteBusy] = useState(false)
+  const [inviteCopied, setInviteCopied] = useState(false)
   /** Viewer remote dual-stream tier (HIGH/LOW) for Auto quality badge. */
   const [viewerStreamTier, setViewerStreamTier] =
     useState<StreamQualityTier>(initialStreamTier)
@@ -206,6 +267,16 @@ export function LiveRoom({
   useEffect(() => {
     setIsPractice(isPracticeProp)
   }, [isPracticeProp])
+
+  useEffect(() => {
+    setInviteEnabled(initialInviteEnabled)
+  }, [initialInviteEnabled])
+
+  useEffect(() => {
+    setInvitePrice(
+      initialInvitePrice != null ? Number(initialInvitePrice) : null
+    )
+  }, [initialInvitePrice])
 
   useEffect(() => {
     setLatencyMode(initialLatencyMode)
@@ -288,6 +359,19 @@ export function LiveRoom({
     }
   }, [])
 
+  // Audience: after ~6s with no remote video, explain the black screen.
+  useEffect(() => {
+    if (isHost || isPaused || status !== 'live' || hasVideoEl || audioOnlyMode) {
+      setWaitingForHostVideo(false)
+      return
+    }
+    const t = window.setTimeout(() => {
+      if (endedRef.current || isPausedRef.current) return
+      setWaitingForHostVideo(true)
+    }, 6000)
+    return () => window.clearTimeout(t)
+  }, [isHost, isPaused, status, hasVideoEl, audioOnlyMode])
+
   // Viewers: poll API so we detect end / BRB even if Agora or socket miss.
   useEffect(() => {
     if (!liveId) return
@@ -349,13 +433,50 @@ export function LiveRoom({
       if (!isHost) void applyAudienceLatency(nextMode)
     }
 
+    const onBillingTick = (payload: {
+      liveId?: string
+      billedMinutes?: number
+      heldMinutes?: number
+      pricePerMinute?: number
+      totalAmount?: string
+      paused?: boolean
+    }) => {
+      if (payload.liveId !== liveId || isHost) return
+      setBillingInfo({
+        pricePerMinute: Number(payload.pricePerMinute ?? 0),
+        billedMinutes: Number(payload.billedMinutes ?? 0),
+        heldMinutes: Number(payload.heldMinutes ?? 0),
+        totalAmount: String(payload.totalAmount ?? '0.00'),
+        paused: Boolean(payload.paused),
+      })
+      setBillingLow(false)
+    }
+
+    const onBillingLow = (payload: { liveId?: string }) => {
+      if (payload.liveId !== liveId || isHost) return
+      setBillingLow(true)
+    }
+
+    const onBillingExhausted = (payload: { liveId?: string; reason?: string }) => {
+      if (payload.liveId !== liveId || isHost) return
+      void cleanup().then(() => {
+        ;(onEnded ?? onLeave)()
+      })
+    }
+
     socket.emit('live:join', { liveId })
     socket.on('live:brb', onBrb)
     socket.on('live:latency', onLatency)
+    socket.on('live:billing-tick', onBillingTick)
+    socket.on('live:billing-low', onBillingLow)
+    socket.on('live:billing-exhausted', onBillingExhausted)
 
     return () => {
       socket.off('live:brb', onBrb)
       socket.off('live:latency', onLatency)
+      socket.off('live:billing-tick', onBillingTick)
+      socket.off('live:billing-low', onBillingLow)
+      socket.off('live:billing-exhausted', onBillingExhausted)
       socket.disconnect()
     }
   }, [isHost, liveId])
@@ -911,6 +1032,13 @@ export function LiveRoom({
     camRef.current = null
     micRef.current = null
     await teardownClient(client)
+    if (!isHost && liveId) {
+      try {
+        await leaveLive(liveId)
+      } catch {
+        // ignore — billing may already have stopped
+      }
+    }
     // Give Agora a beat to release the stable UID before a quick rejoin.
     await delay(400)
   }
@@ -935,6 +1063,80 @@ export function LiveRoom({
       console.error('Failed to flip camera', err)
     } finally {
       setFlipBusy(false)
+    }
+  }
+
+  async function handleEnableInvite() {
+    if (!isHost || !liveId || inviteBusy) return
+    const raw = window.prompt(
+      'Private invite price (₹)?\n• Leave empty = use this live’s FREE/PAID price\n• 0 = free for invitees\n• e.g. 199 = charge ₹199 via invite link',
+      invitePrice != null ? String(invitePrice) : ''
+    )
+    if (raw === null) return
+    let priceArg: number | null | undefined = undefined
+    const trimmed = raw.trim()
+    if (trimmed !== '') {
+      const n = Number(trimmed)
+      if (!Number.isFinite(n) || n < 0) {
+        window.alert('Enter a valid price (0 or more), or leave empty.')
+        return
+      }
+      priceArg = n
+    }
+    setInviteBusy(true)
+    setInviteCopied(false)
+    try {
+      const result = onEnableInvite
+        ? await onEnableInvite(priceArg)
+        : await enableLiveInvite(liveId, priceArg)
+      setInviteEnabled(Boolean(result.live.inviteEnabled))
+      setInvitePrice(
+        result.live.invitePrice != null ? Number(result.live.invitePrice) : null
+      )
+      setInviteToken(result.inviteToken)
+      const url = buildLiveInviteUrl(liveId, result.inviteToken)
+      try {
+        await navigator.clipboard.writeText(url)
+        setInviteCopied(true)
+      } catch {
+        // clipboard may be blocked
+      }
+    } catch (err) {
+      console.error('Failed to enable invite', err)
+    } finally {
+      setInviteBusy(false)
+    }
+  }
+
+  async function handleCopyInvite() {
+    if (!liveId || !inviteToken) {
+      await handleEnableInvite()
+      return
+    }
+    const url = buildLiveInviteUrl(liveId, inviteToken)
+    try {
+      await navigator.clipboard.writeText(url)
+      setInviteCopied(true)
+    } catch (err) {
+      console.error('Failed to copy invite', err)
+    }
+  }
+
+  async function handleDisableInvite() {
+    if (!isHost || !liveId || inviteBusy) return
+    setInviteBusy(true)
+    try {
+      const result = onDisableInvite
+        ? await onDisableInvite()
+        : await disableLiveInvite(liveId)
+      setInviteEnabled(Boolean(result.live.inviteEnabled))
+      setInvitePrice(null)
+      setInviteToken(null)
+      setInviteCopied(false)
+    } catch (err) {
+      console.error('Failed to disable invite', err)
+    } finally {
+      setInviteBusy(false)
     }
   }
 
@@ -1077,6 +1279,22 @@ export function LiveRoom({
               {autoQualityLabel(viewerStreamTier, streamQuality)}
             </span>
           ) : null}
+          {!isHost && billingInfo && status !== 'ended' ? (
+            <span
+              className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                billingLow
+                  ? 'border border-amber-400/40 bg-amber-500/20 text-amber-100'
+                  : 'border border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
+              }`}
+              title="Wallet per-minute billing"
+            >
+              ₹{billingInfo.pricePerMinute}/min
+              {billingInfo.billedMinutes > 0
+                ? ` · ${billingInfo.billedMinutes}m · ₹${billingInfo.totalAmount}`
+                : ''}
+              {billingInfo.paused ? ' · paused' : ''}
+            </span>
+          ) : null}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle ? (
@@ -1128,7 +1346,54 @@ export function LiveRoom({
                 {goPublicBusy ? 'Going live…' : 'Go live to audience'}
               </button>
             ) : null}
-            {isHost && status !== 'ended' && !isPaused ? (
+            {isHost && liveId ? (
+              inviteEnabled ? (
+                <div className="flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={inviteBusy}
+                      onClick={() => void handleCopyInvite()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/90 px-3.5 py-2 text-[13px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-50"
+                      title="Copy private invite link"
+                    >
+                      <Copy className="size-4" />
+                      {inviteCopied
+                        ? 'Copied!'
+                        : inviteToken
+                          ? invitePrice != null
+                            ? `Copy · ₹${invitePrice}`
+                            : 'Copy invite'
+                          : 'Rotate & copy'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={inviteBusy}
+                      onClick={() => void handleDisableInvite()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                      title="Disable private invite"
+                    >
+                      Public
+                    </button>
+                  </div>
+                  <p className="max-w-[15rem] text-right text-[10px] leading-snug text-white/45">
+                    Share with fans; stay in this studio to keep video on.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={inviteBusy}
+                  onClick={() => void handleEnableInvite()}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                  title="Make invite-only and copy link"
+                >
+                  <Link2 className="size-4" />
+                  {inviteBusy ? '…' : 'Private invite'}
+                </button>
+              )
+            ) : null}
+            {isHost && !isPaused ? (
               <button
                 type="button"
                 disabled={flipBusy}
@@ -1240,6 +1505,25 @@ export function LiveRoom({
             <p className="max-w-xs text-[13px] text-white/45">
               Video paused to save data — audio keeps playing. Return to this
               tab for video.
+            </p>
+          </div>
+        ) : null}
+
+        {waitingForHostVideo &&
+        !isHost &&
+        !isPaused &&
+        !audioOnlyMode &&
+        status === 'live' ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-white/10">
+              <Loader2 className="size-7 animate-spin text-white/80" />
+            </span>
+            <p className="text-base font-semibold text-white">
+              Waiting for host video…
+            </p>
+            <p className="max-w-xs text-[13px] text-white/45">
+              You&apos;re in the room — chat still works. Video appears when the
+              host is on camera.
             </p>
           </div>
         ) : null}

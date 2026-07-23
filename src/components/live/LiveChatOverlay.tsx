@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
-import { Gift, Pin, PinOff, Send, Smile } from 'lucide-react'
+import {
+  Gift,
+  MessageSquare,
+  MessageSquareOff,
+  Pin,
+  PinOff,
+  Send,
+  Smile,
+} from 'lucide-react'
 import {
   connectLiveSocket,
   type LiveChatMessage,
@@ -24,6 +32,8 @@ const EMOJI_SET = [
   '💪',
   '🥰',
 ]
+
+const SWIPE_HIDE_PX = 56
 
 type PickerMode = 'none' | 'emoji' | 'gift'
 
@@ -54,9 +64,11 @@ export function LiveChatOverlay({
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [joined, setJoined] = useState(false)
+  const [commentsHidden, setCommentsHidden] = useState(false)
   const socketRef = useRef<Socket | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const joinedRef = useRef(false)
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     const socket = connectLiveSocket()
@@ -192,6 +204,23 @@ export function LiveChatOverlay({
     socketRef.current?.emit('live:unpin', { liveId })
   }
 
+  function onCommentsPointerDown(clientX: number, clientY: number) {
+    swipeStartRef.current = { x: clientX, y: clientY }
+  }
+
+  function onCommentsPointerUp(clientX: number, clientY: number) {
+    const start = swipeStartRef.current
+    swipeStartRef.current = null
+    if (!start || commentsHidden) return
+    const dx = clientX - start.x
+    const dy = clientY - start.y
+    // Horizontal swipe left (clearer than vertical scroll)
+    if (dx < -SWIPE_HIDE_PX && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      setCommentsHidden(true)
+      setPicker('none')
+    }
+  }
+
   const tipLabel =
     isHost
       ? 'Free for host'
@@ -201,106 +230,131 @@ export function LiveChatOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col justify-end pb-4 pt-24">
-      {pinned ? (
-        <div className="pointer-events-auto mb-2 px-3 sm:max-w-md">
-          <div className="flex items-start gap-2 rounded-2xl border border-amber-400/35 bg-amber-500/20 px-2.5 py-2 shadow-sm backdrop-blur-md">
-            <Pin className="mt-0.5 size-3.5 shrink-0 text-amber-200" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold text-amber-100">
-                Pinned · {pinned.user.name}
-              </p>
-              <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-white">
-                {messagePreview(pinned)}
-              </p>
-            </div>
-            {isHost ? (
-              <button
-                type="button"
-                onClick={unpinMessage}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full text-amber-100/80 transition hover:bg-white/10 hover:text-white"
-                aria-label="Unpin message"
-                title="Unpin"
-              >
-                <PinOff className="size-3.5" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div
-        ref={listRef}
-        className={cn(
-          'mb-3 max-h-[42vh] space-y-1.5 overflow-y-auto px-3 [-ms-overflow-style:none] [scrollbar-width:none] sm:max-w-md [&::-webkit-scrollbar]:hidden',
-          isHost ? 'pointer-events-auto' : 'pointer-events-none'
-        )}
-      >
-        {messages.map((msg) => {
-          const gift =
-            msg.kind === 'GIFT'
-              ? getLiveGift(msg.giftId ?? msg.body)
-              : undefined
-          const giftEmoji = msg.giftEmoji ?? gift?.emoji
-          const giftLabel = msg.giftLabel ?? gift?.label ?? 'Gift'
-          const isPinned = pinned?.id === msg.id
-          return (
-            <div
-              key={msg.id}
-              className={cn(
-                'flex items-end gap-2 rounded-2xl bg-black/50 px-2.5 py-1.5 shadow-sm backdrop-blur-md',
-                isPinned && 'ring-1 ring-amber-400/40'
-              )}
-            >
-              <span className="shrink-0 text-[12px] font-bold text-white">
-                {msg.user.name}
-              </span>
-              {msg.kind === 'EMOJI' ? (
-                <span className="min-w-0 flex-1 text-[20px] leading-none">
-                  {msg.body}
-                </span>
-              ) : msg.kind === 'GIFT' ? (
-                <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-snug text-white/90">
-                  <span className="text-[18px] leading-none">
-                    {giftEmoji ?? '🎁'}
-                  </span>
-                  <span>{giftLabel}</span>
-                  {msg.amountCharged > 0 ? (
-                    <span className="text-[11px] text-amber-200/90">
-                      {formatCurrency(msg.amountCharged)}
-                    </span>
-                  ) : null}
-                </span>
-              ) : (
-                <span className="min-w-0 flex-1 text-[13px] leading-snug text-white/90">
-                  {msg.body}
-                </span>
-              )}
-              {isHost ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    isPinned ? unpinMessage() : pinMessage(msg.id)
-                  }
-                  className={cn(
-                    'mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full transition',
-                    isPinned
-                      ? 'bg-amber-400/30 text-amber-100'
-                      : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'
-                  )}
-                  aria-label={isPinned ? 'Unpin message' : 'Pin message'}
-                  title={isPinned ? 'Unpin' : 'Pin'}
-                >
-                  {isPinned ? (
+      {!commentsHidden ? (
+        <div
+          className="pointer-events-auto touch-pan-y sm:max-w-md"
+          onTouchStart={(e) => {
+            const t = e.changedTouches[0]
+            if (t) onCommentsPointerDown(t.clientX, t.clientY)
+          }}
+          onTouchEnd={(e) => {
+            const t = e.changedTouches[0]
+            if (t) onCommentsPointerUp(t.clientX, t.clientY)
+          }}
+        >
+          {pinned ? (
+            <div className="mb-2 px-3">
+              <div className="flex items-start gap-2 rounded-2xl border border-amber-400/35 bg-amber-500/20 px-2.5 py-2 shadow-sm backdrop-blur-md">
+                <Pin className="mt-0.5 size-3.5 shrink-0 text-amber-200" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold text-amber-100">
+                    Pinned · {pinned.user.name}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-white">
+                    {messagePreview(pinned)}
+                  </p>
+                </div>
+                {isHost ? (
+                  <button
+                    type="button"
+                    onClick={unpinMessage}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-amber-100/80 transition hover:bg-white/10 hover:text-white"
+                    aria-label="Unpin message"
+                    title="Unpin"
+                  >
                     <PinOff className="size-3.5" />
-                  ) : (
-                    <Pin className="size-3.5" />
-                  )}
-                </button>
-              ) : null}
+                  </button>
+                ) : null}
+              </div>
             </div>
-          )
-        })}
-      </div>
+          ) : null}
+
+          <div
+            ref={listRef}
+            className="mb-1 max-h-[42vh] space-y-1.5 overflow-y-auto px-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {messages.map((msg) => {
+              const gift =
+                msg.kind === 'GIFT'
+                  ? getLiveGift(msg.giftId ?? msg.body)
+                  : undefined
+              const giftEmoji = msg.giftEmoji ?? gift?.emoji
+              const giftLabel = msg.giftLabel ?? gift?.label ?? 'Gift'
+              const isPinned = pinned?.id === msg.id
+              return (
+                <div
+                  key={msg.id}
+                  className={cn(
+                    'flex items-end gap-2 rounded-2xl bg-black/50 px-2.5 py-1.5 shadow-sm backdrop-blur-md',
+                    isPinned && 'ring-1 ring-amber-400/40'
+                  )}
+                >
+                  <span className="shrink-0 text-[12px] font-bold text-white">
+                    {msg.user.name}
+                  </span>
+                  {msg.kind === 'EMOJI' ? (
+                    <span className="min-w-0 flex-1 text-[20px] leading-none">
+                      {msg.body}
+                    </span>
+                  ) : msg.kind === 'GIFT' ? (
+                    <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 text-[13px] leading-snug text-white/90">
+                      <span className="text-[18px] leading-none">
+                        {giftEmoji ?? '🎁'}
+                      </span>
+                      <span>{giftLabel}</span>
+                      {msg.amountCharged > 0 ? (
+                        <span className="text-[11px] text-amber-200/90">
+                          {formatCurrency(msg.amountCharged)}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="min-w-0 flex-1 text-[13px] leading-snug text-white/90">
+                      {msg.body}
+                    </span>
+                  )}
+                  {isHost ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        isPinned ? unpinMessage() : pinMessage(msg.id)
+                      }
+                      className={cn(
+                        'mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full transition',
+                        isPinned
+                          ? 'bg-amber-400/30 text-amber-100'
+                          : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'
+                      )}
+                      aria-label={isPinned ? 'Unpin message' : 'Pin message'}
+                      title={isPinned ? 'Unpin' : 'Pin'}
+                    >
+                      {isPinned ? (
+                        <PinOff className="size-3.5" />
+                      ) : (
+                        <Pin className="size-3.5" />
+                      )}
+                    </button>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+          <p className="mb-2 px-4 text-[10px] text-white/35">
+            Swipe left on comments to hide
+          </p>
+        </div>
+      ) : (
+        <div className="pointer-events-auto mb-2 px-3 sm:max-w-md">
+          <button
+            type="button"
+            onClick={() => setCommentsHidden(false)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-[12px] font-medium text-white/90 backdrop-blur-md transition hover:bg-black/75"
+          >
+            <MessageSquare className="size-3.5" />
+            Show comments
+          </button>
+        </div>
+      )}
 
       <div className="pointer-events-auto px-3 sm:max-w-md">
         {error ? (
@@ -366,6 +420,27 @@ export function LiveChatOverlay({
             maxLength={280}
             className="min-w-0 flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-white/40"
           />
+          <button
+            type="button"
+            onClick={() => {
+              setCommentsHidden((v) => !v)
+              setPicker('none')
+            }}
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full transition',
+              commentsHidden
+                ? 'bg-white/20 text-white'
+                : 'text-white/70 hover:bg-white/10'
+            )}
+            aria-label={commentsHidden ? 'Show comments' : 'Hide comments'}
+            title={commentsHidden ? 'Show comments' : 'Hide comments'}
+          >
+            {commentsHidden ? (
+              <MessageSquare className="size-4" />
+            ) : (
+              <MessageSquareOff className="size-4" />
+            )}
+          </button>
           <button
             type="button"
             onClick={() =>
