@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Clapperboard, Play, Radio, Square } from 'lucide-react'
 
@@ -182,7 +183,7 @@ export function LiveEventsStudio() {
   if (room) {
     const practicing =
       Boolean(room.live.isPractice) || room.live.status === 'PRACTICE'
-    return (
+    const liveRoom = (
       <LiveRoom
         creds={room.agora}
         title={room.live.title}
@@ -215,6 +216,13 @@ export function LiveEventsStudio() {
         }
       />
     )
+
+    // Escape CreatorStudioShell (max-width + framer transform) so fixed UI
+    // and the health pill are not clipped or offset.
+    if (typeof document !== 'undefined') {
+      return createPortal(liveRoom, document.body)
+    }
+    return liveRoom
   }
 
   const lives = livesQuery.data ?? []
