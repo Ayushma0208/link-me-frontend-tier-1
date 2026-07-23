@@ -7,7 +7,7 @@ import AgoraRTC, {
   type ICameraVideoTrack,
   type IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Clapperboard, Coffee, Play, Radio, X } from 'lucide-react'
+import { Clapperboard, Coffee, Headphones, Play, Radio, X } from 'lucide-react'
 import {
   DEFAULT_STREAM_QUALITY,
   getLive,
@@ -156,12 +156,15 @@ export function LiveRoom({
   const [brbBusy, setBrbBusy] = useState(false)
   const [goPublicBusy, setGoPublicBusy] = useState(false)
   const [latencyBusy, setLatencyBusy] = useState(false)
+  /** Viewer-only: tab/app minimized — remote video off, audio still playing. */
+  const [audioOnlyMode, setAudioOnlyMode] = useState(false)
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
   const micRef = useRef<IMicrophoneAudioTrack | null>(null)
   const endedRef = useRef(false)
   const leavingRef = useRef(false)
+  const backgroundAudioRef = useRef(false)
   const latencyModeRef = useRef(latencyMode)
   latencyModeRef.current = latencyMode
 
@@ -214,6 +217,8 @@ export function LiveRoom({
   function markEnded() {
     if (endedRef.current) return
     endedRef.current = true
+    backgroundAudioRef.current = false
+    setAudioOnlyMode(false)
     setIsPaused(false)
     setStatus('ended')
   }
@@ -337,6 +342,7 @@ export function LiveRoom({
   useEffect(() => {
     let mounted = true
     let stuckTimer: number | undefined
+    let detachBackgroundAudio: (() => void) | undefined
     const mock = isMockAgora(creds)
     leavingRef.current = false
 
@@ -354,6 +360,7 @@ export function LiveRoom({
     }
 
     function playRemoteVideo(user: IAgoraRTCRemoteUser) {
+      if (backgroundAudioRef.current) return
       const track = user.videoTrack
       const el = videoRef.current
       if (!track || !el) return
@@ -383,9 +390,19 @@ export function LiveRoom({
       user: IAgoraRTCRemoteUser,
       mediaType: 'audio' | 'video'
     ) {
+      // Viewers in background audio mode skip video to save bandwidth.
+      if (mediaType === 'video' && backgroundAudioRef.current) return
       try {
         await client.subscribe(user, mediaType)
         if (mediaType === 'video') {
+          if (backgroundAudioRef.current) {
+            try {
+              await client.unsubscribe(user, 'video')
+            } catch {
+              // ignore
+            }
+            return
+          }
           await applyRemoteStreamTier(
             client,
             user.uid,
@@ -396,6 +413,111 @@ export function LiveRoom({
         if (mediaType === 'audio') user.audioTrack?.play()
       } catch (err) {
         console.error('Agora subscribe failed', err)
+      }
+    }
+
+    function setMediaSessionPlaying(playing: boolean) {
+      if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
+        return
+      }
+      try {
+        if (playing) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: title || 'Live',
+            artist: subtitle?.trim() || 'LinkMe Live',
+            album: 'LinkMe',
+          })
+          navigator.mediaSession.playbackState = 'playing'
+        } else {
+          navigator.mediaSession.playbackState = 'none'
+          navigator.mediaSession.metadata = null
+        }
+      } catch {
+        // Media Session is best-effort (browser support varies).
+      }
+    }
+
+    /** Stop remote video while keeping audio — used when the tab/app is hidden. */
+    async function enterBackgroundAudio(client: IAgoraRTCClient) {
+      if (isHost || mock || !mounted || leavingRef.current || endedRef.current) {
+        return
+      }
+      backgroundAudioRef.current = true
+      if (mounted) setAudioOnlyMode(true)
+      setMediaSessionPlaying(true)
+
+      for (const user of client.remoteUsers) {
+        if (!user.videoTrack && !user.hasVideo) continue
+        try {
+          user.videoTrack?.stop()
+          await client.unsubscribe(user, 'video')
+        } catch (err) {
+          console.warn('Failed to drop remote video for background audio', err)
+        }
+      }
+      if (videoRef.current) videoRef.current.replaceChildren()
+
+      // Re-assert audio playback — some browsers pause media on hide.
+      for (const user of client.remoteUsers) {
+        try {
+          user.audioTrack?.play()
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    async function exitBackgroundAudio(client: IAgoraRTCClient) {
+      if (isHost || !mounted || leavingRef.current) return
+      backgroundAudioRef.current = false
+      if (mounted) setAudioOnlyMode(false)
+      setMediaSessionPlaying(false)
+
+      for (const user of client.remoteUsers) {
+        if (!mounted || leavingRef.current) return
+        if (user.hasVideo && !user.videoTrack) {
+          await subscribeRemote(client, user, 'video')
+        } else if (user.videoTrack) {
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
+          playRemoteVideo(user)
+        }
+        if (user.audioTrack) {
+          try {
+            user.audioTrack.play()
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    function attachBackgroundAudioMode(client: IAgoraRTCClient) {
+      if (isHost || mock) return
+
+      const onVisibility = () => {
+        if (!mounted || leavingRef.current || endedRef.current) return
+        if (document.visibilityState === 'hidden') {
+          void enterBackgroundAudio(client)
+        } else {
+          void exitBackgroundAudio(client)
+        }
+      }
+
+      // Already backgrounded at join (e.g. opened in a background tab).
+      if (document.visibilityState === 'hidden') {
+        void enterBackgroundAudio(client)
+      }
+
+      document.addEventListener('visibilitychange', onVisibility)
+      return () => {
+        document.removeEventListener('visibilitychange', onVisibility)
+        backgroundAudioRef.current = false
+        setMediaSessionPlaying(false)
+        if (mounted) setAudioOnlyMode(false)
       }
     }
 
@@ -533,6 +655,7 @@ export function LiveRoom({
         })
 
         attachNetworkQualityAdaptation(client)
+        detachBackgroundAudio = attachBackgroundAudioMode(client)
 
         await joinChannel(client)
         if (!mounted) return
@@ -582,7 +705,12 @@ export function LiveRoom({
         } else {
           await subscribeExistingRemotes(client)
           // Remotes / tracks often arrive a beat after join on rejoin.
-          for (let i = 0; i < 10 && mounted; i++) {
+          // Skip the wait when already in background audio (no video expected).
+          for (
+            let i = 0;
+            i < 10 && mounted && !backgroundAudioRef.current;
+            i++
+          ) {
             if (containerHasVideo(videoRef.current)) break
             await delay(300)
             await subscribeExistingRemotes(client)
@@ -611,6 +739,9 @@ export function LiveRoom({
     return () => {
       mounted = false
       leavingRef.current = true
+      detachBackgroundAudio?.()
+      backgroundAudioRef.current = false
+      setAudioOnlyMode(false)
       if (stuckTimer != null) window.clearTimeout(stuckTimer)
       const client = clientRef.current
       clientRef.current = null
@@ -627,6 +758,16 @@ export function LiveRoom({
 
   async function cleanup() {
     leavingRef.current = true
+    backgroundAudioRef.current = false
+    setAudioOnlyMode(false)
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'none'
+        navigator.mediaSession.metadata = null
+      } catch {
+        // ignore
+      }
+    }
     const client = clientRef.current
     clientRef.current = null
     camRef.current?.close()
@@ -743,6 +884,11 @@ export function LiveRoom({
           ) : isPaused ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
               BRB
+            </span>
+          ) : audioOnlyMode ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
+              <Headphones className="size-3" />
+              Audio
             </span>
           ) : status === 'connecting' ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white/70">
@@ -888,6 +1034,21 @@ export function LiveRoom({
                 </p>
               </div>
             </div>
+          </div>
+        ) : null}
+
+        {audioOnlyMode && !isPaused && status !== 'ended' && status !== 'connecting' ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#0b0b0f] px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-sky-500/90">
+              <Headphones className="size-7 text-black" />
+            </span>
+            <p className="text-base font-semibold text-white">
+              Listening in background
+            </p>
+            <p className="max-w-xs text-[13px] text-white/45">
+              Video paused to save data — audio keeps playing. Return to this
+              tab for video.
+            </p>
           </div>
         ) : null}
 
