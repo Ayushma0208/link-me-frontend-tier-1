@@ -11,6 +11,7 @@ import { StudioPageHeader } from '@/components/creator-studio/StudioPageHeader'
 import { api, ApiError } from '@/lib/api'
 import {
   enterPracticeMine,
+  endLiveMine,
   goPublicLive,
   startPracticeMine,
   type AgoraCreds,
@@ -156,8 +157,13 @@ export function LiveEventsStudio() {
   })
 
   const endLive = useMutation({
-    mutationFn: (id: string) =>
-      api<LiveResponse>(`/creators/me/live/${id}/end`, { method: 'POST' }),
+    mutationFn: ({
+      id,
+      raidTargetLiveId,
+    }: {
+      id: string
+      raidTargetLiveId?: string
+    }) => endLiveMine(id, { raidTargetLiveId }),
     onSuccess: () => {
       setRoom(null)
       setError(null)
@@ -213,7 +219,12 @@ export function LiveEventsStudio() {
         initialInviteEnabled={Boolean(room.live.inviteEnabled)}
         initialInvitePrice={room.live.invitePrice ?? null}
         onLeave={() => setRoom(null)}
-        onEnd={() => endLive.mutate(room.live.id)}
+        onEnd={(opts) =>
+          endLive.mutate({
+            id: room.live.id,
+            raidTargetLiveId: opts?.raidTargetLiveId,
+          })
+        }
         onGoPublic={
           practicing
             ? async () => {
@@ -437,7 +448,7 @@ export function LiveEventsStudio() {
                 live.isPractice ? (
                 <button
                   type="button"
-                  onClick={() => endLive.mutate(live.id)}
+                  onClick={() => endLive.mutate({ id: live.id })}
                   disabled={endLive.isPending}
                   className="inline-flex h-10 items-center gap-2 rounded-full border border-rose-400/30 bg-rose-500/10 px-4 text-xs font-semibold text-rose-200"
                 >

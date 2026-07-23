@@ -33,6 +33,16 @@ export interface LiveDto {
   inviteEnabled?: boolean
   /** Private invite join price (INR). Null = use live FREE/PAID price. */
   invitePrice?: number | null
+  /** Present after end when host raided another live. */
+  raid?: {
+    targetLiveId: string
+    target: {
+      id: string
+      title: string
+      status?: string
+      creator?: LiveCreator
+    } | null
+  } | null
   brbMessage?: string | null
   brbImageUrl?: string | null
   pausedAt?: string | null
@@ -377,8 +387,32 @@ export function startScheduledLive(liveId: string) {
   return api<AgoraGrant>(`/admin/live/${liveId}/start`, { method: 'POST' })
 }
 
-export function endLive(liveId: string) {
-  return api<{ live: LiveDto }>(`/admin/live/${liveId}/end`, { method: 'POST' })
+export function endLive(
+  liveId: string,
+  opts?: { raidTargetLiveId?: string }
+) {
+  return api<{ live: LiveDto }>(`/admin/live/${liveId}/end`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  })
+}
+
+export function endLiveMine(
+  liveId: string,
+  opts?: { raidTargetLiveId?: string }
+) {
+  return api<{ live: LiveDto }>(`/creators/me/live/${liveId}/end`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  })
+}
+
+export function listRaidTargetsMine() {
+  return api<LiveDto[]>('/creators/me/live/raid-targets')
+}
+
+export function listRaidTargetsForLive(liveId: string) {
+  return api<LiveDto[]>(`/admin/live/${liveId}/raid-targets`)
 }
 
 export function listCreatorLives(creatorId: string) {

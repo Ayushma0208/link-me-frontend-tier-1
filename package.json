@@ -20,6 +20,7 @@
     "@link-me/shared": "*",
     "@serwist/next": "^9.5.11",
     "@tanstack/react-query": "^5.83.0",
+    "agora-extension-beauty-effect": "^1.0.2-beta",
     "agora-rtc-sdk-ng": "^4.23.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
