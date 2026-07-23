@@ -35,8 +35,11 @@ export function LiveEventsStudio() {
   const queryClient = useQueryClient()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [accessType, setAccessType] = useState<'FREE' | 'PAID'>('FREE')
+  const [accessType, setAccessType] = useState<'FREE' | 'PAID' | 'PER_MINUTE'>(
+    'FREE'
+  )
   const [price, setPrice] = useState('99')
+  const [pricePerMinute, setPricePerMinute] = useState('100')
   const [emojiPrice, setEmojiPrice] = useState('10')
   const [scheduledAt, setScheduledAt] = useState('')
   const [room, setRoom] = useState<{
@@ -62,6 +65,9 @@ export function LiveEventsStudio() {
     description: description.trim() || null,
     accessType,
     ...(accessType === 'PAID' ? { price: Number(price) } : {}),
+    ...(accessType === 'PER_MINUTE'
+      ? { pricePerMinute: Number(pricePerMinute) || 100 }
+      : {}),
     emojiPrice: Number(emojiPrice),
   }
 
@@ -204,6 +210,8 @@ export function LiveEventsStudio() {
         }
         streamQuality={room.streamQuality}
         isPractice={practicing}
+        initialInviteEnabled={Boolean(room.live.inviteEnabled)}
+        initialInvitePrice={room.live.invitePrice ?? null}
         onLeave={() => setRoom(null)}
         onEnd={() => endLive.mutate(room.live.id)}
         onGoPublic={
@@ -231,7 +239,9 @@ export function LiveEventsStudio() {
   const valid =
     title.trim() &&
     Number(emojiPrice) > 0 &&
-    (accessType === 'FREE' || Number(price) > 0)
+    (accessType === 'FREE' ||
+      (accessType === 'PAID' && Number(price) > 0) ||
+      (accessType === 'PER_MINUTE' && Number(pricePerMinute) > 0))
 
   return (
     <div>
@@ -275,7 +285,7 @@ export function LiveEventsStudio() {
             />
           </label>
           <div className="flex gap-2">
-            {(['FREE', 'PAID'] as const).map((type) => (
+            {(['FREE', 'PAID', 'PER_MINUTE'] as const).map((type) => (
               <button
                 key={type}
                 type="button"
@@ -286,21 +296,37 @@ export function LiveEventsStudio() {
                     : 'border-white/10 text-white/45'
                 }`}
               >
-                {type === 'FREE' ? 'Free' : 'Paid'}
+                {type === 'FREE'
+                  ? 'Free'
+                  : type === 'PAID'
+                    ? 'Paid'
+                    : 'Per minute'}
               </button>
             ))}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-2">
               <span className="text-xs font-semibold text-white/50">
-                Entry price
+                {accessType === 'PER_MINUTE' ? '₹ per minute' : 'Entry price'}
               </span>
               <input
                 type="number"
                 min="1"
                 disabled={accessType === 'FREE'}
-                value={accessType === 'FREE' ? '0' : price}
-                onChange={(event) => setPrice(event.target.value)}
+                value={
+                  accessType === 'FREE'
+                    ? '0'
+                    : accessType === 'PER_MINUTE'
+                      ? pricePerMinute
+                      : price
+                }
+                onChange={(event) => {
+                  if (accessType === 'PER_MINUTE') {
+                    setPricePerMinute(event.target.value)
+                  } else {
+                    setPrice(event.target.value)
+                  }
+                }}
                 className="h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white disabled:opacity-40"
               />
             </label>
@@ -377,7 +403,9 @@ export function LiveEventsStudio() {
                   {' · '}
                   {live.accessType === 'PAID'
                     ? formatCurrency(Number(live.price ?? 0))
-                    : 'Free'}
+                    : live.accessType === 'PER_MINUTE'
+                      ? `${formatCurrency(Number(live.pricePerMinute ?? 100))}/min`
+                      : 'Free'}
                   {' · '}Emoji {formatCurrency(Number(live.emojiPrice ?? 0))}
                 </p>
               </div>

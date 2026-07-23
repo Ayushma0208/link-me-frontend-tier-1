@@ -156,7 +156,9 @@ export function UserLivePage() {
                     <p className="mt-0.5 text-[12px] text-white/35">
                       {live.accessType === 'PAID'
                         ? `Paid · ${formatCurrency(live.price ?? 0)}`
-                        : 'Free for subscribers'}
+                        : live.accessType === 'PER_MINUTE'
+                          ? `${formatCurrency(live.pricePerMinute ?? 100)}/min`
+                          : 'Free for subscribers'}
                     </p>
                   </div>
                   <span className="shrink-0 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-bold text-[#07070b]">
@@ -205,7 +207,9 @@ export function UserLivePage() {
                         {whenLabel(live.scheduledAt)} ·{' '}
                         {live.accessType === 'PAID'
                           ? `Paid · ${formatCurrency(live.price ?? 0)}`
-                          : 'Free for subscribers'}
+                          : live.accessType === 'PER_MINUTE'
+                            ? `${formatCurrency(live.pricePerMinute ?? 100)}/min`
+                            : 'Free for subscribers'}
                       </p>
                     </Link>
                   </div>
