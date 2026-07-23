@@ -27,6 +27,7 @@ import {
   getLive,
   isMockAgora,
   leaveLive,
+  listRaidTargetsMine,
   pauseCreatorLive,
   resumeCreatorLive,
   setLatencyModeMine,
@@ -40,6 +41,15 @@ import {
 import { detectDeviceClass, type DeviceClass } from '@/lib/device-class'
 import { flipCameraTrack } from '@/lib/agora-camera'
 import {
+  applyBeautyOptions,
+  attachBeautyProcessor,
+  beautyOptionsFromLevels,
+  createBeautyProcessor,
+  setBeautyEnabled,
+  teardownBeautyProcessor,
+  type IBeautyProcessor,
+} from '@/lib/agora-beauty'
+import {
   connectLiveSocket,
   type LiveBrbPayload,
   type LiveLatencyPayload,
@@ -47,6 +57,16 @@ import {
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
 import { FloatingReactions } from '@/components/live/FloatingReactions'
 import { LivePollOverlay } from '@/components/live/LivePollOverlay'
+import { LiveMilestoneOverlay } from '@/components/live/LiveMilestoneOverlay'
+import { LiveTopGiftersOverlay } from '@/components/live/LiveTopGiftersOverlay'
+import {
+  INITIAL_BEAUTY_UI,
+  LiveBeautyControls,
+  type BeautyUiState,
+} from '@/components/live/LiveBeautyControls'
+import { LiveForensicWatermark } from '@/components/live/LiveForensicWatermark'
+import { LiveVisibleWatermark } from '@/components/live/LiveVisibleWatermark'
+import { useAuthStore } from '@/stores/auth'
 import {
   StreamHealthDashboard,
   stabilityFrom,
@@ -73,7 +93,11 @@ interface LiveRoomProps {
   /** Called after the ended message is shown (viewers → redirect home). */
   onEnded?: () => void
   /** Host-only end action (also ends the session server-side). */
-  onEnd?: () => void
+  onEnd?: (opts?: { raidTargetLiveId?: string }) => void | Promise<void>
+  /** Optional raid target list (defaults to creator /creators/me/live/raid-targets). */
+  fetchRaidTargets?: () => Promise<LiveDto[]>
+  /** Viewer: navigate to a raid target live. */
+  onRaidNavigate?: (targetLiveId: string) => void
   /** Override pause API (e.g. admin host). Defaults to creator self-service. */
   onPause?: (input: PauseLiveInput) => Promise<{ live: LiveDto }>
   /** Override resume API (e.g. admin host). Defaults to creator self-service. */
@@ -172,6 +196,8 @@ export function LiveRoom({
   onLeave,
   onEnded,
   onEnd,
+  fetchRaidTargets,
+  onRaidNavigate,
   onPause,
   onResume,
   onSetLatency,
@@ -184,6 +210,8 @@ export function LiveRoom({
   initialBilling = null,
 }: LiveRoomProps) {
   const isHost = creds.role === 'host'
+  const viewerUserId = useAuthStore((s) => s.user?.id ?? null)
+  const viewerUsername = useAuthStore((s) => s.user?.username ?? null)
   const streamQuality = streamQualityProp ?? DEFAULT_STREAM_QUALITY
   const deviceClassRef = useRef<DeviceClass>(
     typeof navigator !== 'undefined' ? detectDeviceClass() : 'UNKNOWN'
@@ -227,6 +255,17 @@ export function LiveRoom({
       : null
   )
   const [billingLow, setBillingLow] = useState(false)
+  const [raidPickerOpen, setRaidPickerOpen] = useState(false)
+  const [raidTargets, setRaidTargets] = useState<LiveDto[]>([])
+  const [raidTargetsLoading, setRaidTargetsLoading] = useState(false)
+  const [raidEnding, setRaidEnding] = useState(false)
+  const [raidRedirect, setRaidRedirect] = useState<{
+    targetLiveId: string
+    title: string
+    creatorName: string
+    seconds: number
+  } | null>(null)
+  const raidHandledRef = useRef(false)
   const [brbBusy, setBrbBusy] = useState(false)
   const [goPublicBusy, setGoPublicBusy] = useState(false)
   const [latencyBusy, setLatencyBusy] = useState(false)
@@ -251,6 +290,15 @@ export function LiveRoom({
   const [pollToolbarEl, setPollToolbarEl] = useState<HTMLDivElement | null>(
     null
   )
+  const [goalToolbarEl, setGoalToolbarEl] = useState<HTMLDivElement | null>(
+    null
+  )
+  const [beautyOpen, setBeautyOpen] = useState(false)
+  const [beautyUi, setBeautyUi] = useState<BeautyUiState>(INITIAL_BEAUTY_UI)
+  const [beautyOverloaded, setBeautyOverloaded] = useState(false)
+  const beautyProcessorRef = useRef<IBeautyProcessor | null>(null)
+  const beautyUiRef = useRef(beautyUi)
+  beautyUiRef.current = beautyUi
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
@@ -338,6 +386,62 @@ export function LiveRoom({
     setStatus('live')
   }
 
+  function beginRaidRedirect(info: {
+    targetLiveId: string
+    title: string
+    creatorName: string
+  }) {
+    if (isHost) return
+    endedRef.current = true
+    setStatus('ended')
+    setRaidRedirect({ ...info, seconds: 5 })
+  }
+
+  async function openRaidPicker() {
+    if (!liveId || raidTargetsLoading) return
+    setRaidPickerOpen(true)
+    setRaidTargetsLoading(true)
+    try {
+      const items = fetchRaidTargets
+        ? await fetchRaidTargets()
+        : await listRaidTargetsMine()
+      setRaidTargets(items)
+    } catch (err) {
+      console.error('Failed to load raid targets', err)
+      setRaidTargets([])
+    } finally {
+      setRaidTargetsLoading(false)
+    }
+  }
+
+  async function confirmEnd(raidTargetLiveId?: string) {
+    if (raidEnding) return
+    setRaidEnding(true)
+    try {
+      await cleanup()
+      if (onEnd) await onEnd(raidTargetLiveId ? { raidTargetLiveId } : {})
+      else onLeave()
+    } finally {
+      setRaidEnding(false)
+      setRaidPickerOpen(false)
+    }
+  }
+
+  async function handleEndClick() {
+    if (!isHost) {
+      await cleanup()
+      onLeave()
+      return
+    }
+    if (isPractice || !onEnd) {
+      await cleanup()
+      if (onEnd) await onEnd()
+      else onLeave()
+      return
+    }
+    await openRaidPicker()
+  }
+
   // Watch the player DOM — if Agora put a <video> in, clear the waiting overlay.
   useEffect(() => {
     const el = videoRef.current
@@ -382,6 +486,23 @@ export function LiveRoom({
         const details = await getLive(liveId)
         if (cancelled) return
         if (details.live.status === 'ENDED') {
+          const raid = details.live.raid
+          if (
+            !isHost &&
+            raid?.targetLiveId &&
+            !raidHandledRef.current
+          ) {
+            raidHandledRef.current = true
+            beginRaidRedirect({
+              targetLiveId: raid.targetLiveId,
+              title: raid.target?.title ?? 'Live',
+              creatorName:
+                raid.target?.creator?.name ??
+                raid.target?.creator?.username ??
+                'creator',
+            })
+            return
+          }
           markEnded()
           return
         }
@@ -464,12 +585,38 @@ export function LiveRoom({
       })
     }
 
+    const onRaid = (payload: {
+      liveId?: string
+      fromLiveId?: string
+      targetLiveId?: string
+      target?: {
+        id?: string
+        title?: string
+        creator?: { name?: string; username?: string }
+      }
+    }) => {
+      if (isHost) return
+      const fromId = payload.fromLiveId ?? payload.liveId
+      if (fromId !== liveId || !payload.targetLiveId) return
+      if (raidHandledRef.current) return
+      raidHandledRef.current = true
+      beginRaidRedirect({
+        targetLiveId: payload.targetLiveId,
+        title: payload.target?.title ?? 'Live',
+        creatorName:
+          payload.target?.creator?.name ??
+          payload.target?.creator?.username ??
+          'creator',
+      })
+    }
+
     socket.emit('live:join', { liveId })
     socket.on('live:brb', onBrb)
     socket.on('live:latency', onLatency)
     socket.on('live:billing-tick', onBillingTick)
     socket.on('live:billing-low', onBillingLow)
     socket.on('live:billing-exhausted', onBillingExhausted)
+    socket.on('live:raid', onRaid)
 
     return () => {
       socket.off('live:brb', onBrb)
@@ -477,13 +624,38 @@ export function LiveRoom({
       socket.off('live:billing-tick', onBillingTick)
       socket.off('live:billing-low', onBillingLow)
       socket.off('live:billing-exhausted', onBillingExhausted)
+      socket.off('live:raid', onRaid)
       socket.disconnect()
     }
   }, [isHost, liveId])
 
-  // After showing "Live is ended", redirect viewers home.
+  // Raid countdown → navigate to target live.
   useEffect(() => {
-    if (status !== 'ended' || isHost) return
+    if (!raidRedirect) return
+    if (raidRedirect.seconds <= 0) {
+      const targetId = raidRedirect.targetLiveId
+      void cleanup().then(() => {
+        if (onRaidNavigate) onRaidNavigate(targetId)
+        else if (typeof window !== 'undefined') {
+          window.location.href = `/live/${targetId}`
+        } else {
+          ;(onEnded ?? onLeave)()
+        }
+      })
+      return
+    }
+    const t = window.setTimeout(() => {
+      setRaidRedirect((prev) =>
+        prev ? { ...prev, seconds: prev.seconds - 1 } : prev
+      )
+    }, 1000)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- countdown tick
+  }, [raidRedirect])
+
+  // After showing "Live is ended", redirect viewers home (unless raiding).
+  useEffect(() => {
+    if (status !== 'ended' || isHost || raidRedirect) return
     const timer = setTimeout(() => {
       void cleanup().then(() => {
         ;(onEnded ?? onLeave)()
@@ -491,7 +663,7 @@ export function LiveRoom({
     }, 2200)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to ended
-  }, [status, isHost])
+  }, [status, isHost, raidRedirect])
 
   // Join once per channel + uid. Do not depend on the whole creds object —
   // go-public returns a refreshed token object and must not tear down the host
@@ -868,6 +1040,36 @@ export function LiveRoom({
           }
           micRef.current = mic
           camRef.current = cam
+
+          // Host-only: Agora Beauty Effect on published camera track.
+          try {
+            const processor = createBeautyProcessor()
+            beautyProcessorRef.current = processor
+            processor.onoverload = () => {
+              setBeautyOverloaded(true)
+              setBeautyUi((prev) => ({ ...prev, enabled: false }))
+              void setBeautyEnabled(processor, false)
+            }
+            const levels = beautyUiRef.current
+            await attachBeautyProcessor(
+              cam,
+              processor,
+              beautyOptionsFromLevels({
+                contrast: levels.contrast,
+                lightening: levels.lightening,
+                smoothness: levels.smoothness,
+                sharpness: levels.sharpness,
+                redness: levels.redness,
+              })
+            )
+            if (!levels.enabled) {
+              await setBeautyEnabled(processor, false)
+            }
+          } catch (err) {
+            console.warn('Beauty effect unavailable', err)
+            beautyProcessorRef.current = null
+          }
+
           if (videoRef.current) {
             videoRef.current.replaceChildren()
             cam.play(videoRef.current)
@@ -925,14 +1127,38 @@ export function LiveRoom({
       clientRef.current = null
       const cam = camRef.current
       const mic = micRef.current
+      const beauty = beautyProcessorRef.current
+      beautyProcessorRef.current = null
       camRef.current = null
       micRef.current = null
-      cam?.close()
-      mic?.close()
-      void teardownClient(client)
+      void teardownBeautyProcessor(cam, beauty).finally(() => {
+        cam?.close()
+        mic?.close()
+        void teardownClient(client)
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- join once per channel/uid
   }, [agoraJoinKey, isHost])
+
+  // Host: apply beauty slider / toggle changes to the live processor.
+  useEffect(() => {
+    if (!isHost) return
+    const processor = beautyProcessorRef.current
+    if (!processor) return
+    applyBeautyOptions(
+      processor,
+      beautyOptionsFromLevels({
+        contrast: beautyUi.contrast,
+        lightening: beautyUi.lightening,
+        smoothness: beautyUi.smoothness,
+        sharpness: beautyUi.sharpness,
+        redness: beautyUi.redness,
+      })
+    )
+    void setBeautyEnabled(processor, beautyUi.enabled).catch(() => {
+      /* ignore */
+    })
+  }, [isHost, beautyUi])
 
   // Host: poll Agora local send stats for the stream health dashboard.
   useEffect(() => {
@@ -1333,7 +1559,10 @@ export function LiveRoom({
               </div>
             ) : null}
             {isHost && liveId && !isPractice ? (
-              <div ref={setPollToolbarEl} className="relative" />
+              <div className="flex items-center gap-1.5">
+                <div ref={setPollToolbarEl} className="relative" />
+                <div ref={setGoalToolbarEl} className="relative" />
+              </div>
             ) : null}
             {isHost && isPractice && onGoPublic ? (
               <button
@@ -1394,6 +1623,18 @@ export function LiveRoom({
               )
             ) : null}
             {isHost && !isPaused ? (
+              <LiveBeautyControls
+                open={beautyOpen}
+                onOpenChange={setBeautyOpen}
+                state={beautyUi}
+                onChange={(next) => {
+                  if (next.enabled) setBeautyOverloaded(false)
+                  setBeautyUi(next)
+                }}
+                overloaded={beautyOverloaded}
+              />
+            ) : null}
+            {isHost && !isPaused ? (
               <button
                 type="button"
                 disabled={flipBusy}
@@ -1430,12 +1671,9 @@ export function LiveRoom({
             ) : null}
             <button
               type="button"
-              onClick={async () => {
-                await cleanup()
-                if (isHost && onEnd) onEnd()
-                else onLeave()
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20"
+              disabled={raidEnding}
+              onClick={() => void handleEndClick()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
             >
               <X className="size-4" />
               {isHost ? (isPractice ? 'End practice' : 'End live') : 'Leave'}
@@ -1458,6 +1696,31 @@ export function LiveRoom({
 
       <div className="relative flex-1">
         <div ref={videoRef} className="absolute inset-0 bg-[#0b0b0f]" />
+
+        {!isHost && liveId && viewerUserId ? (
+          <LiveForensicWatermark
+            userId={viewerUserId}
+            liveId={liveId}
+            active={
+              status === 'live' &&
+              !isPaused &&
+              !audioOnlyMode &&
+              !raidRedirect
+            }
+          />
+        ) : null}
+
+        {!isHost && liveId && viewerUsername ? (
+          <LiveVisibleWatermark
+            username={viewerUsername}
+            active={
+              status === 'live' &&
+              !isPaused &&
+              !audioOnlyMode &&
+              !raidRedirect
+            }
+          />
+        ) : null}
 
         {isPaused ? (
           <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center overflow-hidden bg-[#0b0b0f]">
@@ -1528,7 +1791,7 @@ export function LiveRoom({
           </div>
         ) : null}
 
-        {showStatusOverlay ? (
+        {showStatusOverlay && !raidRedirect ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
             <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500">
               <Radio className="size-7 text-white" />
@@ -1539,6 +1802,33 @@ export function LiveRoom({
                 Taking you back home…
               </p>
             ) : null}
+          </div>
+        ) : null}
+
+        {raidRedirect ? (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
+              <Radio className="size-7 text-white" />
+            </span>
+            <p className="text-lg font-bold text-white">
+              Raiding @{raidRedirect.creatorName}
+            </p>
+            <p className="max-w-xs text-[13px] text-white/55">
+              {raidRedirect.title} — joining in {raidRedirect.seconds}s
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const targetId = raidRedirect.targetLiveId
+                void cleanup().then(() => {
+                  if (onRaidNavigate) onRaidNavigate(targetId)
+                  else window.location.href = `/live/${targetId}`
+                })
+              }}
+              className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-white px-5 text-[13px] font-semibold text-black"
+            >
+              Join now
+            </button>
           </div>
         ) : null}
 
@@ -1565,6 +1855,12 @@ export function LiveRoom({
               isHost={isHost}
               hostToolbarEl={isHost ? pollToolbarEl : null}
             />
+            <LiveMilestoneOverlay
+              liveId={liveId}
+              isHost={isHost}
+              hostToolbarEl={isHost ? goalToolbarEl : null}
+            />
+            <LiveTopGiftersOverlay liveId={liveId} />
             <LiveChatOverlay
               liveId={liveId}
               emojiPrice={emojiPrice}
@@ -1573,6 +1869,87 @@ export function LiveRoom({
           </>
         ) : null}
       </div>
+
+      {raidPickerOpen ? (
+        <div className="absolute inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.14em] text-fuchsia-300/80 uppercase">
+                  Raid
+                </p>
+                <h2 className="mt-1 text-lg font-bold text-white">
+                  Send viewers to another live?
+                </h2>
+                <p className="mt-1 text-[13px] text-white/45">
+                  Pick a public live on air, or end without raiding.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={raidEnding}
+                onClick={() => setRaidPickerOpen(false)}
+                className="rounded-full bg-white/10 p-2 text-white/70 hover:bg-white/15"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
+              {raidTargetsLoading ? (
+                <div className="flex items-center justify-center py-8 text-white/50">
+                  <Loader2 className="size-5 animate-spin" />
+                </div>
+              ) : raidTargets.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-4 text-center text-[13px] text-white/45">
+                  No other public lives on air right now.
+                </p>
+              ) : (
+                raidTargets.map((target) => (
+                  <button
+                    key={target.id}
+                    type="button"
+                    disabled={raidEnding}
+                    onClick={() => void confirmEnd(target.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.08] disabled:opacity-50"
+                  >
+                    <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-[12px] font-bold text-white">
+                      {target.creator?.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={target.creator.avatarUrl}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        (target.creator?.name ?? '?').slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold text-white">
+                        {target.creator?.name ?? 'Creator'}
+                      </span>
+                      <span className="block truncate text-[12px] text-white/45">
+                        {target.title}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[11px] font-semibold text-fuchsia-300">
+                      Raid
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={raidEnding}
+              onClick={() => void confirmEnd()}
+              className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-full bg-white text-[14px] font-semibold text-black disabled:opacity-50"
+            >
+              {raidEnding ? 'Ending…' : 'End without raid'}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

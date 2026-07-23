@@ -29,6 +29,7 @@ import {
   enterPracticeAdmin,
   goPublicAdminLive,
   listCreatorLives,
+  listRaidTargetsForLive,
   pauseAdminLive,
   resumeAdminLive,
   scheduleLive,
@@ -716,7 +717,13 @@ export function AdminCreatorDetail() {
   })
 
   const stopLive = useMutation({
-    mutationFn: (liveId: string) => endLive(liveId),
+    mutationFn: ({
+      liveId,
+      raidTargetLiveId,
+    }: {
+      liveId: string
+      raidTargetLiveId?: string
+    }) => endLive(liveId, { raidTargetLiveId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(null)
@@ -1033,7 +1040,7 @@ export function AdminCreatorDetail() {
             {activeLive ? (
               <button
                 type="button"
-                onClick={() => stopLive.mutate(activeLive.id)}
+                onClick={() => stopLive.mutate({ liveId: activeLive.id })}
                 disabled={stopLive.isPending}
                 className="text-[12px] font-medium text-rose-400 hover:text-rose-300 disabled:opacity-50"
               >
@@ -1174,7 +1181,7 @@ export function AdminCreatorDetail() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => stopLive.mutate(live.id)}
+                      onClick={() => stopLive.mutate({ liveId: live.id })}
                       disabled={stopLive.isPending}
                       className="rounded-full p-1.5 text-white/40 hover:bg-white/10 hover:text-white disabled:opacity-50"
                       aria-label="Cancel scheduled live"
@@ -2060,7 +2067,13 @@ export function AdminCreatorDetail() {
             setHostStreamQuality(null)
             setHostLive(null)
           }}
-          onEnd={() => stopLive.mutate(hostLive.id)}
+          onEnd={(opts) =>
+            stopLive.mutate({
+              liveId: hostLive.id,
+              raidTargetLiveId: opts?.raidTargetLiveId,
+            })
+          }
+          fetchRaidTargets={() => listRaidTargetsForLive(hostLive.id)}
           onGoPublic={
             hostLive.isPractice || hostLive.status === 'PRACTICE'
               ? async () => {

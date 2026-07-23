@@ -378,6 +378,12 @@ export function LiveView({ liveId, inviteToken = null }: LiveViewProps) {
         initialBilling={billing}
         onLeave={leave}
         onEnded={leave}
+        onRaidNavigate={(targetLiveId) => {
+          setCreds(null)
+          setStreamQuality(null)
+          setBilling(null)
+          router.push(`/live/${targetLiveId}`)
+        }}
       />
     )
   }
