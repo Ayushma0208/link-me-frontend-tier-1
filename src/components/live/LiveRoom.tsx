@@ -9,6 +9,7 @@ import AgoraRTC, {
 } from 'agora-rtc-sdk-ng'
 import { Clapperboard, Coffee, Play, Radio, X } from 'lucide-react'
 import {
+  DEFAULT_STREAM_QUALITY,
   getLive,
   isMockAgora,
   pauseCreatorLive,
@@ -18,7 +19,10 @@ import {
   type LiveDto,
   type LiveLatencyMode,
   type PauseLiveInput,
+  type StreamQualityPolicy,
+  type StreamQualityTier,
 } from '@/lib/live'
+import { detectDeviceClass, type DeviceClass } from '@/lib/device-class'
 import {
   connectLiveSocket,
   type LiveBrbPayload,
@@ -40,6 +44,8 @@ interface LiveRoomProps {
   initialBrbImageUrl?: string | null
   /** Session Agora audience latency (default ultra-low). */
   initialLatencyMode?: LiveLatencyMode
+  /** Dual-stream profiles + recommended remote tier (from join/host grant). */
+  streamQuality?: StreamQualityPolicy
   onLeave: () => void
   /** Called after the ended message is shown (viewers → redirect home). */
   onEnded?: () => void
@@ -60,6 +66,19 @@ interface LiveRoomProps {
 /** Agora audience level: 2 = ultra-low, 1 = low (normal/stable). */
 function agoraAudienceLevel(mode: LiveLatencyMode): 1 | 2 {
   return mode === 'NORMAL' ? 1 : 2
+}
+
+/** Agora RemoteStreamType: 0 = high, 1 = low. */
+function agoraRemoteStreamType(tier: StreamQualityTier): 0 | 1 {
+  return tier === 'LOW' ? 1 : 0
+}
+
+function resolveInitialTier(
+  policy: StreamQualityPolicy,
+  deviceClass: DeviceClass
+): StreamQualityTier {
+  if (deviceClass === 'BUDGET') return 'LOW'
+  return policy.recommended === 'LOW' ? 'LOW' : 'HIGH'
 }
 
 function containerHasVideo(el: HTMLElement | null): boolean {
@@ -100,6 +119,7 @@ export function LiveRoom({
   initialBrbMessage = null,
   initialBrbImageUrl = null,
   initialLatencyMode = 'ULTRA_LOW',
+  streamQuality: streamQualityProp,
   onLeave,
   onEnded,
   onEnd,
@@ -110,6 +130,15 @@ export function LiveRoom({
   onGoPublic,
 }: LiveRoomProps) {
   const isHost = creds.role === 'host'
+  const streamQuality = streamQualityProp ?? DEFAULT_STREAM_QUALITY
+  const deviceClassRef = useRef<DeviceClass>(
+    typeof navigator !== 'undefined' ? detectDeviceClass() : 'UNKNOWN'
+  )
+  const streamTierRef = useRef<StreamQualityTier>(
+    resolveInitialTier(streamQuality, deviceClassRef.current)
+  )
+  const poorDownlinkStreakRef = useRef(0)
+  const goodDownlinkStreakRef = useRef(0)
   const [status, setStatus] = useState<
     'connecting' | 'live' | 'waiting' | 'ended'
   >('connecting')
@@ -334,6 +363,21 @@ export function LiveRoom({
       if (mounted) markLive()
     }
 
+    async function applyRemoteStreamTier(
+      client: IAgoraRTCClient,
+      uid: IAgoraRTCRemoteUser['uid'],
+      tier: StreamQualityTier
+    ) {
+      try {
+        await client.setRemoteVideoStreamType(uid, agoraRemoteStreamType(tier))
+        // Fallback to low stream when the network worsens (Agora safety net).
+        await client.setStreamFallbackOption(uid, 1)
+        streamTierRef.current = tier
+      } catch (err) {
+        console.warn('Failed to set remote stream type', err)
+      }
+    }
+
     async function subscribeRemote(
       client: IAgoraRTCClient,
       user: IAgoraRTCRemoteUser,
@@ -341,11 +385,62 @@ export function LiveRoom({
     ) {
       try {
         await client.subscribe(user, mediaType)
-        if (mediaType === 'video') playRemoteVideo(user)
+        if (mediaType === 'video') {
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
+          playRemoteVideo(user)
+        }
         if (mediaType === 'audio') user.audioTrack?.play()
       } catch (err) {
         console.error('Agora subscribe failed', err)
       }
+    }
+
+    function attachNetworkQualityAdaptation(client: IAgoraRTCClient) {
+      if (isHost) return
+      client.on('network-quality', (stats) => {
+        if (!mounted || leavingRef.current) return
+        const downlink = stats.downlinkNetworkQuality
+        // 0 = unknown — ignore
+        if (!downlink) return
+
+        const budgetLocked = deviceClassRef.current === 'BUDGET'
+        const current = streamTierRef.current
+
+        if (downlink >= 4) {
+          poorDownlinkStreakRef.current += 1
+          goodDownlinkStreakRef.current = 0
+        } else if (downlink <= 2) {
+          goodDownlinkStreakRef.current += 1
+          poorDownlinkStreakRef.current = 0
+        } else {
+          poorDownlinkStreakRef.current = 0
+          goodDownlinkStreakRef.current = 0
+          return
+        }
+
+        const nextTier: StreamQualityTier | null =
+          poorDownlinkStreakRef.current >= 2 && current === 'HIGH'
+            ? 'LOW'
+            : !budgetLocked &&
+                goodDownlinkStreakRef.current >= 3 &&
+                current === 'LOW'
+              ? 'HIGH'
+              : null
+
+        if (!nextTier) return
+
+        poorDownlinkStreakRef.current = 0
+        goodDownlinkStreakRef.current = 0
+        streamTierRef.current = nextTier
+        for (const user of client.remoteUsers) {
+          if (!user.hasVideo && !user.videoTrack) continue
+          void applyRemoteStreamTier(client, user.uid, nextTier)
+        }
+      })
     }
 
     /** Host may already be publishing — remotes can appear slightly after join. */
@@ -355,6 +450,11 @@ export function LiveRoom({
         if (user.hasVideo && !user.videoTrack) {
           await subscribeRemote(client, user, 'video')
         } else if (user.videoTrack) {
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
           playRemoteVideo(user)
         }
         if (user.hasAudio && !user.audioTrack) {
@@ -432,11 +532,36 @@ export function LiveRoom({
           }
         })
 
+        attachNetworkQualityAdaptation(client)
+
         await joinChannel(client)
         if (!mounted) return
 
         if (isHost) {
-          const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks()
+          // Dual-stream so each viewer can pick HIGH vs LOW bitrate.
+          try {
+            client.setLowStreamParameter({
+              width: streamQuality.low.width,
+              height: streamQuality.low.height,
+              framerate: streamQuality.low.frameRate,
+              bitrate: streamQuality.low.bitrate,
+            })
+            await client.enableDualStream()
+          } catch (err) {
+            console.warn('Failed to enable Agora dual-stream', err)
+          }
+
+          const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks(
+            undefined,
+            {
+              encoderConfig: {
+                width: streamQuality.high.width,
+                height: streamQuality.high.height,
+                frameRate: streamQuality.high.frameRate,
+                bitrateMax: streamQuality.high.bitrate,
+              },
+            }
+          )
           if (!mounted) {
             mic.close()
             cam.close()

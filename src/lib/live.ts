@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import type { DeviceClass } from '@/lib/device-class'
 import {
   openRazorpayCheckout,
   type RazorpayCheckoutDto,
@@ -40,6 +41,30 @@ export interface LiveDto {
 
 export type LiveLatencyMode = 'ULTRA_LOW' | 'NORMAL'
 
+export type StreamQualityTier = 'HIGH' | 'LOW'
+
+export interface StreamEncoderProfile {
+  width: number
+  height: number
+  bitrate: number
+  frameRate: number
+}
+
+/** Dual-stream policy from join/host grant — drives Agora encoder + remote stream pick. */
+export interface StreamQualityPolicy {
+  dualStream: true
+  high: StreamEncoderProfile
+  low: StreamEncoderProfile
+  recommended: StreamQualityTier
+}
+
+export const DEFAULT_STREAM_QUALITY: StreamQualityPolicy = {
+  dualStream: true,
+  high: { width: 1280, height: 720, bitrate: 1500, frameRate: 24 },
+  low: { width: 640, height: 360, bitrate: 400, frameRate: 15 },
+  recommended: 'HIGH',
+}
+
 export interface PauseLiveInput {
   message?: string
   imageUrl?: string | null
@@ -55,8 +80,20 @@ export interface AgoraCreds {
   mock?: boolean
 }
 
+export type AgoraGrant = {
+  live: LiveDto
+  agora: AgoraCreds
+  streamQuality?: StreamQualityPolicy
+  notified?: number
+}
+
 export type JoinResult =
-  | { status: 'GRANTED'; live: LiveDto; agora: AgoraCreds }
+  | {
+      status: 'GRANTED'
+      live: LiveDto
+      agora: AgoraCreds
+      streamQuality?: StreamQualityPolicy
+    }
   | { status: 'PAYMENT_REQUIRED'; live: LiveDto; price: number; currency: string }
 
 /** Agora is running in stub/dev mode (no real broadcast credentials). */
@@ -99,19 +136,30 @@ export function unnotifyMeLive(id: string) {
   })
 }
 
-export function joinLive(id: string) {
-  return api<JoinResult>(`/lives/${id}/join`, { method: 'POST' })
+export function joinLive(id: string, deviceClass?: DeviceClass) {
+  return api<JoinResult>(`/lives/${id}/join`, {
+    method: 'POST',
+    body: JSON.stringify(deviceClass ? { deviceClass } : {}),
+  })
 }
 
-export function payLiveWithWallet(id: string) {
-  return api<{ status: 'GRANTED'; live: LiveDto; agora: AgoraCreds }>(
-    `/lives/${id}/pay/wallet`,
-    { method: 'POST' }
-  )
+export function payLiveWithWallet(id: string, deviceClass?: DeviceClass) {
+  return api<{
+    status: 'GRANTED'
+    live: LiveDto
+    agora: AgoraCreds
+    streamQuality?: StreamQualityPolicy
+  }>(`/lives/${id}/pay/wallet`, {
+    method: 'POST',
+    body: JSON.stringify(deviceClass ? { deviceClass } : {}),
+  })
 }
 
 /** Pay for a paid live via Razorpay (or the dev stub checkout), then grant access. */
-export async function payLiveWithRazorpay(id: string): Promise<JoinResult> {
+export async function payLiveWithRazorpay(
+  id: string,
+  deviceClass?: DeviceClass
+): Promise<JoinResult> {
   const init = await api<{
     alreadyPaid?: boolean
     payment?: { id: string; amount: number; currency: string }
@@ -124,7 +172,7 @@ export async function payLiveWithRazorpay(id: string): Promise<JoinResult> {
   }>(`/lives/${id}/pay/razorpay/initiate`, { method: 'POST' })
 
   if (init.alreadyPaid || !init.razorpay || !init.payment) {
-    return joinLive(id)
+    return joinLive(id, deviceClass)
   }
 
   const checkout: RazorpayCheckoutDto = {
@@ -147,6 +195,7 @@ export async function payLiveWithRazorpay(id: string): Promise<JoinResult> {
       providerOrderId: response.razorpay_order_id,
       providerPaymentId: response.razorpay_payment_id,
       providerSignature: response.razorpay_signature,
+      ...(deviceClass ? { deviceClass } : {}),
     }),
   })
 }
@@ -161,53 +210,45 @@ export interface StartLiveInput {
 }
 
 export function startLive(creatorId: string, input: StartLiveInput) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/admin/creators/${creatorId}/live`,
-    { method: 'POST', body: JSON.stringify(input) }
-  )
+  return api<AgoraGrant>(`/admin/creators/${creatorId}/live`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export function startPractice(creatorId: string, input: StartLiveInput) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/admin/creators/${creatorId}/live/practice`,
-    { method: 'POST', body: JSON.stringify(input) }
-  )
+  return api<AgoraGrant>(`/admin/creators/${creatorId}/live/practice`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export function goPublicAdminLive(liveId: string) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/admin/live/${liveId}/go-public`,
-    { method: 'POST' }
-  )
+  return api<AgoraGrant>(`/admin/live/${liveId}/go-public`, { method: 'POST' })
 }
 
 export function startPracticeMine(input: StartLiveInput) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    '/creators/me/live/practice',
-    { method: 'POST', body: JSON.stringify(input) }
-  )
+  return api<AgoraGrant>('/creators/me/live/practice', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
 }
 
 export function goPublicLive(liveId: string) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/creators/me/live/${liveId}/go-public`,
-    { method: 'POST' }
-  )
+  return api<AgoraGrant>(`/creators/me/live/${liveId}/go-public`, {
+    method: 'POST',
+  })
 }
 
 /** Scheduled premiere → private warm-up on the same session. */
 export function enterPracticeMine(liveId: string) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/creators/me/live/${liveId}/practice`,
-    { method: 'POST' }
-  )
+  return api<AgoraGrant>(`/creators/me/live/${liveId}/practice`, {
+    method: 'POST',
+  })
 }
 
 export function enterPracticeAdmin(liveId: string) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/admin/live/${liveId}/practice`,
-    { method: 'POST' }
-  )
+  return api<AgoraGrant>(`/admin/live/${liveId}/practice`, { method: 'POST' })
 }
 
 export interface ScheduleLiveInput extends StartLiveInput {
@@ -222,10 +263,7 @@ export function scheduleLive(creatorId: string, input: ScheduleLiveInput) {
 }
 
 export function startScheduledLive(liveId: string) {
-  return api<{ live: LiveDto; agora: AgoraCreds; notified: number }>(
-    `/admin/live/${liveId}/start`,
-    { method: 'POST' }
-  )
+  return api<AgoraGrant>(`/admin/live/${liveId}/start`, { method: 'POST' })
 }
 
 export function endLive(liveId: string) {

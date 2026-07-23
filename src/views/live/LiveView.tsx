@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { ApiError } from '@/lib/api'
+import { detectDeviceClass } from '@/lib/device-class'
 import {
   getLive,
   joinLive,
@@ -22,6 +23,7 @@ import {
   unnotifyMeLive,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import {
   formatPremiereWhen,
@@ -80,6 +82,9 @@ export function LiveView({ liveId }: LiveViewProps) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [live, setLive] = useState<LiveDto | null>(null)
   const [creds, setCreds] = useState<AgoraCreds | null>(null)
+  const [streamQuality, setStreamQuality] = useState<StreamQualityPolicy | null>(
+    null
+  )
   const [price, setPrice] = useState<number>(0)
   const [error, setError] = useState<string | null>(null)
   const [paying, setPaying] = useState<'wallet' | 'razorpay' | null>(null)
@@ -92,10 +97,11 @@ export function LiveView({ liveId }: LiveViewProps) {
   const attemptJoin = useCallback(async () => {
     setError(null)
     try {
-      const res = await joinLive(liveId)
+      const res = await joinLive(liveId, detectDeviceClass())
       setLive(res.live)
       if (res.status === 'GRANTED') {
         setCreds(res.agora)
+        setStreamQuality(res.streamQuality ?? null)
         setPhase('granted')
       } else {
         setPrice(res.price)
@@ -240,9 +246,10 @@ export function LiveView({ liveId }: LiveViewProps) {
     setPaying('wallet')
     setError(null)
     try {
-      const res = await payLiveWithWallet(liveId)
+      const res = await payLiveWithWallet(liveId, detectDeviceClass())
       setLive(res.live)
       setCreds(res.agora)
+      setStreamQuality(res.streamQuality ?? null)
       setPhase('granted')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Wallet payment failed')
@@ -255,10 +262,11 @@ export function LiveView({ liveId }: LiveViewProps) {
     setPaying('razorpay')
     setError(null)
     try {
-      const res = await payLiveWithRazorpay(liveId)
+      const res = await payLiveWithRazorpay(liveId, detectDeviceClass())
       setLive(res.live)
       if (res.status === 'GRANTED') {
         setCreds(res.agora)
+        setStreamQuality(res.streamQuality ?? null)
         setPhase('granted')
       }
     } catch (err) {
@@ -276,6 +284,7 @@ export function LiveView({ liveId }: LiveViewProps) {
 
   function leave() {
     setCreds(null)
+    setStreamQuality(null)
     setPhase('loading')
     router.push('/user')
   }
@@ -294,6 +303,7 @@ export function LiveView({ liveId }: LiveViewProps) {
         initialLatencyMode={
           live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
         }
+        streamQuality={streamQuality ?? undefined}
         onLeave={leave}
         onEnded={leave}
       />
