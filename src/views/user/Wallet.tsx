@@ -92,7 +92,7 @@ function transactionTitle(tx: WalletTx) {
   if (tx.source === 'PPV') {
     return handle ? `Post from ${handle}` : 'Exclusive post'
   }
-  if (tx.source === 'COFFEE' || tx.source === 'TIP') {
+  if (tx.source === 'COFFEE' || tx.source === 'TIP' || tx.source === 'GIFT') {
     return handle ? `Support for ${handle}` : 'Creator support'
   }
   return tx.description || (tx.type === 'CREDIT' ? 'Wallet credit' : 'Purchase')

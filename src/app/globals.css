@@ -24,6 +24,7 @@
   --animate-apps-marquee: apps-marquee var(--apps-marquee-duration, 40s) linear infinite;
   --animate-apps-marquee-reverse: apps-marquee-reverse var(--apps-marquee-duration, 40s) linear infinite;
   --animate-gradient-shift: gradient-shift 4s ease-in-out infinite;
+  --animate-live-float: live-float 3s ease-out forwards;
 }
 
 @keyframes creator-marquee {
@@ -69,6 +70,26 @@
   }
   50% {
     background-position: 100% 50%;
+  }
+}
+
+@keyframes live-float {
+  0% {
+    transform: translate3d(-50%, 0, 0) scale(0.55);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+    transform: translate3d(-50%, -12vh, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(
+        calc(-50% + var(--live-float-drift, 0px)),
+        -88vh,
+        0
+      )
+      scale(1.05);
+    opacity: 0;
   }
 }
 

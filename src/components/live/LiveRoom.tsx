@@ -7,7 +7,7 @@ import AgoraRTC, {
   type ICameraVideoTrack,
   type IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Clapperboard, Coffee, Headphones, Play, Radio, X } from 'lucide-react'
+import { Clapperboard, Coffee, Headphones, Play, Radio, SwitchCamera, X } from 'lucide-react'
 import {
   DEFAULT_STREAM_QUALITY,
   getLive,
@@ -23,12 +23,15 @@ import {
   type StreamQualityTier,
 } from '@/lib/live'
 import { detectDeviceClass, type DeviceClass } from '@/lib/device-class'
+import { flipCameraTrack } from '@/lib/agora-camera'
 import {
   connectLiveSocket,
   type LiveBrbPayload,
   type LiveLatencyPayload,
 } from '@/lib/live-socket'
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
+import { FloatingReactions } from '@/components/live/FloatingReactions'
+import { LivePollOverlay } from '@/components/live/LivePollOverlay'
 import {
   StreamHealthDashboard,
   stabilityFrom,
@@ -86,6 +89,16 @@ function resolveInitialTier(
   return policy.recommended === 'LOW' ? 'LOW' : 'HIGH'
 }
 
+/** Label for the Auto quality badge from dual-stream tier + profile height. */
+function autoQualityLabel(
+  tier: StreamQualityTier,
+  policy: StreamQualityPolicy
+): string {
+  const height =
+    tier === 'LOW' ? policy.low.height : policy.high.height
+  return `Auto · ${height}p`
+}
+
 function containerHasVideo(el: HTMLElement | null): boolean {
   if (!el) return false
   const vid = el.querySelector('video')
@@ -139,9 +152,11 @@ export function LiveRoom({
   const deviceClassRef = useRef<DeviceClass>(
     typeof navigator !== 'undefined' ? detectDeviceClass() : 'UNKNOWN'
   )
-  const streamTierRef = useRef<StreamQualityTier>(
-    resolveInitialTier(streamQuality, deviceClassRef.current)
+  const initialStreamTier = resolveInitialTier(
+    streamQuality,
+    deviceClassRef.current
   )
+  const streamTierRef = useRef<StreamQualityTier>(initialStreamTier)
   const poorDownlinkStreakRef = useRef(0)
   const goodDownlinkStreakRef = useRef(0)
   const [status, setStatus] = useState<
@@ -161,6 +176,10 @@ export function LiveRoom({
   const [brbBusy, setBrbBusy] = useState(false)
   const [goPublicBusy, setGoPublicBusy] = useState(false)
   const [latencyBusy, setLatencyBusy] = useState(false)
+  const [flipBusy, setFlipBusy] = useState(false)
+  /** Viewer remote dual-stream tier (HIGH/LOW) for Auto quality badge. */
+  const [viewerStreamTier, setViewerStreamTier] =
+    useState<StreamQualityTier>(initialStreamTier)
   /** Viewer-only: tab/app minimized — remote video off, audio still playing. */
   const [audioOnlyMode, setAudioOnlyMode] = useState(false)
   /** Host-only: real-time Agora send stats for the health dashboard. */
@@ -168,6 +187,9 @@ export function LiveRoom({
     null
   )
   const [healthExpanded, setHealthExpanded] = useState(false)
+  const [pollToolbarEl, setPollToolbarEl] = useState<HTMLDivElement | null>(
+    null
+  )
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
@@ -396,6 +418,7 @@ export function LiveRoom({
         // Fallback to low stream when the network worsens (Agora safety net).
         await client.setStreamFallbackOption(uid, 1)
         streamTierRef.current = tier
+        if (mounted) setViewerStreamTier(tier)
       } catch (err) {
         console.warn('Failed to set remote stream type', err)
       }
@@ -548,7 +571,11 @@ export function LiveRoom({
         const budgetLocked = deviceClassRef.current === 'BUDGET'
         const current = streamTierRef.current
 
-        if (downlink >= 4) {
+        // Very poor (≥5): downshift immediately on next check.
+        if (downlink >= 5) {
+          poorDownlinkStreakRef.current += 1
+          goodDownlinkStreakRef.current = 0
+        } else if (downlink >= 4) {
           poorDownlinkStreakRef.current += 1
           goodDownlinkStreakRef.current = 0
         } else if (downlink <= 2) {
@@ -560,8 +587,9 @@ export function LiveRoom({
           return
         }
 
+        const poorNeeded = downlink >= 5 ? 1 : 2
         const nextTier: StreamQualityTier | null =
-          poorDownlinkStreakRef.current >= 2 && current === 'HIGH'
+          poorDownlinkStreakRef.current >= poorNeeded && current === 'HIGH'
             ? 'LOW'
             : !budgetLocked &&
                 goodDownlinkStreakRef.current >= 3 &&
@@ -574,6 +602,7 @@ export function LiveRoom({
         poorDownlinkStreakRef.current = 0
         goodDownlinkStreakRef.current = 0
         streamTierRef.current = nextTier
+        if (mounted) setViewerStreamTier(nextTier)
         for (const user of client.remoteUsers) {
           if (!user.hasVideo && !user.videoTrack) continue
           void applyRemoteStreamTier(client, user.uid, nextTier)
@@ -886,6 +915,29 @@ export function LiveRoom({
     await delay(400)
   }
 
+  async function handleFlipCamera() {
+    if (!isHost || isPaused || flipBusy || leavingRef.current) return
+    const cam = camRef.current
+    if (!cam) return
+    setFlipBusy(true)
+    try {
+      const result = await flipCameraTrack(cam)
+      if (!result.ok) {
+        console.warn('Flip camera:', result.message)
+        return
+      }
+      // Re-attach local preview if Agora cleared the container.
+      if (videoRef.current) {
+        videoRef.current.replaceChildren()
+        cam.play(videoRef.current)
+      }
+    } catch (err) {
+      console.error('Failed to flip camera', err)
+    } finally {
+      setFlipBusy(false)
+    }
+  }
+
   async function handlePause() {
     if (!liveId || brbBusy) return
     setBrbBusy(true)
@@ -1014,6 +1066,17 @@ export function LiveRoom({
               onToggle={() => setHealthExpanded((open) => !open)}
             />
           ) : null}
+          {!isHost &&
+          status !== 'ended' &&
+          status !== 'connecting' &&
+          !isMockAgora(creds) ? (
+            <span
+              className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80"
+              title="Adaptive bitrate — switches with your connection"
+            >
+              {autoQualityLabel(viewerStreamTier, streamQuality)}
+            </span>
+          ) : null}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle ? (
@@ -1051,6 +1114,9 @@ export function LiveRoom({
                 </button>
               </div>
             ) : null}
+            {isHost && liveId && !isPractice ? (
+              <div ref={setPollToolbarEl} className="relative" />
+            ) : null}
             {isHost && isPractice && onGoPublic ? (
               <button
                 type="button"
@@ -1060,6 +1126,18 @@ export function LiveRoom({
               >
                 <Radio className="size-4" />
                 {goPublicBusy ? 'Going live…' : 'Go live to audience'}
+              </button>
+            ) : null}
+            {isHost && status !== 'ended' && !isPaused ? (
+              <button
+                type="button"
+                disabled={flipBusy}
+                onClick={() => void handleFlipCamera()}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                title="Flip camera"
+              >
+                <SwitchCamera className="size-4" />
+                {flipBusy ? 'Flipping…' : 'Flip'}
               </button>
             ) : null}
             {isHost && liveId && !isPractice ? (
@@ -1196,11 +1274,19 @@ export function LiveRoom({
         ) : null}
 
         {liveId && status !== 'ended' && !isPractice ? (
-          <LiveChatOverlay
-            liveId={liveId}
-            emojiPrice={emojiPrice}
-            isHost={isHost}
-          />
+          <>
+            <FloatingReactions liveId={liveId} />
+            <LivePollOverlay
+              liveId={liveId}
+              isHost={isHost}
+              hostToolbarEl={isHost ? pollToolbarEl : null}
+            />
+            <LiveChatOverlay
+              liveId={liveId}
+              emojiPrice={emojiPrice}
+              isHost={isHost}
+            />
+          </>
         ) : null}
       </div>
     </div>
