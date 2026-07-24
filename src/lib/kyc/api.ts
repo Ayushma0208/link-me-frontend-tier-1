@@ -15,6 +15,7 @@ export type KycPresignUpload = {
   url: string
   method: 'PUT' | 'POST'
   headers: Record<string, string>
+  fields?: Record<string, string>
   expiresIn: number
 }
 
@@ -63,9 +64,35 @@ export async function kycStatus() {
 
 export async function uploadPresignedFile(
   upload: KycPresignUpload,
-  body: Blob | File
+  body: Blob | File,
+  filename = 'upload.jpg'
 ) {
+  if (upload.method === 'POST' || upload.fields) {
+    const form = new FormData()
+    if (upload.fields) {
+      for (const [key, value] of Object.entries(upload.fields)) {
+        form.append(key, value)
+      }
+    }
+    const file =
+      body instanceof File
+        ? body
+        : new File([body], filename, { type: body.type || 'image/jpeg' })
+    form.append('file', file)
+    const res = await fetch(upload.url, { method: 'POST', body: form })
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      throw new Error(
+        `Upload failed for ${upload.kind}${errText ? `: ${errText.slice(0, 200)}` : ''}`
+      )
+    }
+    return
+  }
+
   const headers = new Headers(upload.headers)
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', body.type || 'image/jpeg')
+  }
   const res = await fetch(upload.url, {
     method: upload.method,
     headers,

@@ -87,7 +87,7 @@ export async function submitCreatorKyc(
   await Promise.all([
     uploadPresignedFile(byKind.aadhaar, draft.documents.aadhaar),
     uploadPresignedFile(byKind.pan, draft.documents.pan),
-    uploadPresignedFile(byKind.selfie, draft.selfie),
+    uploadPresignedFile(byKind.selfie, draft.selfie, selfieFilename(draft.selfie)),
   ])
 
   return kycSubmit({
