@@ -11,11 +11,19 @@ export interface LiveChatUser {
 export interface LiveChatMessage {
   id: string
   liveId: string
-  kind: 'TEXT' | 'EMOJI'
+  kind: 'TEXT' | 'EMOJI' | 'GIFT'
   body: string
   amountCharged: number
   createdAt: string
+  giftId?: string
+  giftLabel?: string
+  giftEmoji?: string
   user: LiveChatUser
+}
+
+export interface LivePinnedPayload {
+  liveId: string
+  message: LiveChatMessage | null
 }
 
 export interface LiveBrbPayload {
@@ -29,6 +37,77 @@ export interface LiveBrbPayload {
 export interface LiveLatencyPayload {
   liveId: string
   latencyMode: 'ULTRA_LOW' | 'NORMAL'
+}
+
+export interface LiveRaidPayload {
+  fromLiveId: string
+  targetLiveId: string
+  target: {
+    id: string
+    title: string
+    status?: string
+    creator?: {
+      id?: string
+      username?: string
+      name?: string
+      avatarUrl?: string | null
+    }
+  }
+}
+
+export interface LivePollOptionDto {
+  id: string
+  label: string
+  sortOrder: number
+  votes: number
+  percent: number
+}
+
+export interface LivePollDto {
+  id: string
+  liveId: string
+  question: string
+  status: 'OPEN' | 'CLOSED'
+  totalVotes: number
+  myVoteOptionId: string | null
+  options: LivePollOptionDto[]
+  createdAt: string
+  closedAt: string | null
+}
+
+export interface LiveGoalDto {
+  id: string
+  liveId: string
+  type: 'SUB' | 'GIFT'
+  label: string
+  target: number
+  current: number
+  status: 'ACTIVE' | 'CLEARED' | 'COMPLETED'
+  createdAt: string
+  completedAt: string | null
+  clearedAt: string | null
+}
+
+export interface LiveGoalProgressPayload {
+  liveId: string
+  goalId: string
+  type: 'SUB' | 'GIFT'
+  label: string
+  current: number
+  target: number
+  status: 'ACTIVE' | 'CLEARED' | 'COMPLETED'
+}
+
+export interface LiveGiftLeaderboardEntry {
+  rank: number
+  totalAmount: number
+  giftCount: number
+  user: LiveChatUser
+}
+
+export interface LiveGiftLeaderboardPayload {
+  liveId: string
+  entries: LiveGiftLeaderboardEntry[]
 }
 
 function socketOrigin(): string {

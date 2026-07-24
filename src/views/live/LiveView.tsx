@@ -13,6 +13,7 @@ import {
   Wallet,
 } from 'lucide-react'
 import { ApiError } from '@/lib/api'
+import { detectDeviceClass } from '@/lib/device-class'
 import {
   getLive,
   joinLive,
@@ -22,6 +23,7 @@ import {
   unnotifyMeLive,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import {
   formatPremiereWhen,
@@ -31,6 +33,7 @@ import { LiveRoom } from '@/components/live/LiveRoom'
 
 interface LiveViewProps {
   liveId: string
+  inviteToken?: string | null
 }
 
 type Phase =
@@ -39,7 +42,9 @@ type Phase =
   | 'preparing'
   | 'subscribe'
   | 'payment'
+  | 'topup'
   | 'granted'
+  | 'host_studio'
   | 'ended'
   | 'error'
 
@@ -75,28 +80,51 @@ function CountdownBlocks({ iso }: { iso: string | null }) {
   )
 }
 
-export function LiveView({ liveId }: LiveViewProps) {
+export function LiveView({ liveId, inviteToken = null }: LiveViewProps) {
   const router = useRouter()
   const [phase, setPhase] = useState<Phase>('loading')
   const [live, setLive] = useState<LiveDto | null>(null)
   const [creds, setCreds] = useState<AgoraCreds | null>(null)
+  const [streamQuality, setStreamQuality] = useState<StreamQualityPolicy | null>(
+    null
+  )
   const [price, setPrice] = useState<number>(0)
+  const [pricePerMinute, setPricePerMinute] = useState<number>(100)
+  const [requiredHold, setRequiredHold] = useState<number>(200)
+  const [billing, setBilling] = useState<{
+    mode: 'PER_MINUTE'
+    pricePerMinute: number
+    heldMinutes: number
+    currency: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [paying, setPaying] = useState<'wallet' | 'razorpay' | null>(null)
   const [notifyMe, setNotifyMe] = useState(false)
   const [notifyBusy, setNotifyBusy] = useState(false)
   const [, setTick] = useState(0)
   const phaseRef = useRef<Phase>('loading')
+  const inviteRef = useRef(inviteToken)
+  inviteRef.current = inviteToken
   phaseRef.current = phase
 
   const attemptJoin = useCallback(async () => {
     setError(null)
     try {
-      const res = await joinLive(liveId)
+      const res = await joinLive(liveId, detectDeviceClass(), inviteRef.current)
       setLive(res.live)
+      if (res.status === 'HOST_REDIRECT') {
+        setPhase('host_studio')
+        return
+      }
       if (res.status === 'GRANTED') {
         setCreds(res.agora)
+        setStreamQuality(res.streamQuality ?? null)
+        setBilling(res.billing ?? null)
         setPhase('granted')
+      } else if (res.status === 'INSUFFICIENT_BALANCE') {
+        setPricePerMinute(res.pricePerMinute)
+        setRequiredHold(res.requiredAmount)
+        setPhase('topup')
       } else {
         setPrice(res.price)
         setPhase('payment')
@@ -114,10 +142,19 @@ export function LiveView({ liveId }: LiveViewProps) {
         setPhase('preparing')
         return
       }
+      if (message.toLowerCase().includes('invite')) {
+        setError(message || 'Invite required to join this private live')
+        setPhase('error')
+        return
+      }
       try {
-        const details = await getLive(liveId)
+        const details = await getLive(liveId, inviteRef.current)
         setLive(details.live)
         setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
+        if (details.isHost) {
+          setPhase('host_studio')
+          return
+        }
         if (
           details.live.status === 'PRACTICE' ||
           details.live.isPractice
@@ -135,19 +172,16 @@ export function LiveView({ liveId }: LiveViewProps) {
 
   const bootstrap = useCallback(async () => {
     try {
-      const details = await getLive(liveId)
+      const details = await getLive(liveId, inviteRef.current)
       setLive(details.live)
       setNotifyMe(Boolean(details.notifyMe ?? details.live.notifyMe))
       if (details.live.status === 'ENDED') {
         setPhase('ended')
         return
       }
-      if (!details.isSubscriber) {
-        setPhase('subscribe')
-        return
-      }
-      if (details.live.status === 'SCHEDULED') {
-        setPhase('scheduled')
+      // Host must stay in studio — never join Agora via viewer/invite URL.
+      if (details.isHost) {
+        setPhase('host_studio')
         return
       }
       if (
@@ -155,6 +189,32 @@ export function LiveView({ liveId }: LiveViewProps) {
         Boolean(details.live.isPractice)
       ) {
         setPhase('preparing')
+        return
+      }
+      if (details.live.status === 'SCHEDULED') {
+        if (!details.isSubscriber && !details.hasInviteAccess) {
+          setPhase('subscribe')
+          return
+        }
+        setPhase('scheduled')
+        return
+      }
+      // Private invite-only: allow join with valid invite (skip subscribe wall).
+      if (
+        details.inviteRequired &&
+        !details.hasInviteAccess &&
+        !details.hasAccess
+      ) {
+        setError('Invite required to join this private live')
+        setPhase('error')
+        return
+      }
+      if (
+        !details.isSubscriber &&
+        !details.hasInviteAccess &&
+        !details.hasAccess
+      ) {
+        setPhase('subscribe')
         return
       }
       await attemptJoin()
@@ -240,9 +300,14 @@ export function LiveView({ liveId }: LiveViewProps) {
     setPaying('wallet')
     setError(null)
     try {
-      const res = await payLiveWithWallet(liveId)
+      const res = await payLiveWithWallet(
+        liveId,
+        detectDeviceClass(),
+        inviteRef.current
+      )
       setLive(res.live)
       setCreds(res.agora)
+      setStreamQuality(res.streamQuality ?? null)
       setPhase('granted')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Wallet payment failed')
@@ -255,10 +320,15 @@ export function LiveView({ liveId }: LiveViewProps) {
     setPaying('razorpay')
     setError(null)
     try {
-      const res = await payLiveWithRazorpay(liveId)
+      const res = await payLiveWithRazorpay(
+        liveId,
+        detectDeviceClass(),
+        inviteRef.current
+      )
       setLive(res.live)
       if (res.status === 'GRANTED') {
         setCreds(res.agora)
+        setStreamQuality(res.streamQuality ?? null)
         setPhase('granted')
       }
     } catch (err) {
@@ -276,6 +346,8 @@ export function LiveView({ liveId }: LiveViewProps) {
 
   function leave() {
     setCreds(null)
+    setStreamQuality(null)
+    setBilling(null)
     setPhase('loading')
     router.push('/user')
   }
@@ -287,15 +359,31 @@ export function LiveView({ liveId }: LiveViewProps) {
         liveId={live.id}
         emojiPrice={live.emojiPrice}
         title={live.title}
-        subtitle={live.creator?.name ? `${live.creator.name} · Live` : 'Live'}
+        subtitle={
+          live.creator?.name
+            ? billing
+              ? `${live.creator.name} · ₹${billing.pricePerMinute}/min`
+              : `${live.creator.name} · Live`
+            : billing
+              ? `₹${billing.pricePerMinute}/min`
+              : 'Live'
+        }
         initialPaused={Boolean(live.isPaused)}
         initialBrbMessage={live.brbMessage}
         initialBrbImageUrl={live.brbImageUrl}
         initialLatencyMode={
           live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
         }
+        streamQuality={streamQuality ?? undefined}
+        initialBilling={billing}
         onLeave={leave}
         onEnded={leave}
+        onRaidNavigate={(targetLiveId) => {
+          setCreds(null)
+          setStreamQuality(null)
+          setBilling(null)
+          router.push(`/live/${targetLiveId}`)
+        }}
       />
     )
   }
@@ -310,12 +398,49 @@ export function LiveView({ liveId }: LiveViewProps) {
             <Lock className="size-6 text-white" />
           ) : phase === 'scheduled' ? (
             <CalendarClock className="size-6 text-white" />
-          ) : phase === 'preparing' ? (
+          ) : phase === 'preparing' || phase === 'loading' ? (
             <Loader2 className="size-6 animate-spin text-white" />
+          ) : phase === 'topup' ? (
+            <Wallet className="size-6 text-white" />
+          ) : phase === 'host_studio' ? (
+            <Radio className="size-6 text-white" />
           ) : (
             <Radio className="size-6 text-white" />
           )}
         </span>
+
+        {phase === 'host_studio' ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold tracking-[0.16em] text-emerald-300/80 uppercase">
+                You&apos;re the host
+              </p>
+              <h1 className="mt-1 text-lg font-bold text-white">
+                {live?.title ?? 'Your live'}
+              </h1>
+              <p className="mt-2 text-[13px] leading-relaxed text-white/55">
+                Keep broadcasting in Studio. Opening this invite link as a
+                viewer can interrupt your stream for everyone. Share the link
+                with fans — you stay in the studio.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/influencer/live')}
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-white text-[14px] font-semibold text-[#07070b] transition hover:bg-white/90"
+            >
+              <Radio className="size-4" />
+              Open Studio
+            </button>
+            <button
+              type="button"
+              onClick={leave}
+              className="text-[13px] text-white/40 transition hover:text-white/70"
+            >
+              Go back
+            </button>
+          </div>
+        ) : null}
 
         {phase === 'loading' ? (
           <div className="mt-5 flex flex-col items-center gap-2">
@@ -346,7 +471,9 @@ export function LiveView({ liveId }: LiveViewProps) {
             <p className="text-[12px] text-white/40">
               {live.accessType === 'PAID'
                 ? `Paid live · ₹${live.price ?? 0} — you'll be asked to pay when it starts`
-                : 'Free for subscribers'}
+                : live.accessType === 'PER_MINUTE'
+                  ? `₹${live.pricePerMinute ?? 100}/min — billed from wallet while you watch`
+                  : 'Free for subscribers'}
             </p>
             <button
               type="button"
@@ -431,7 +558,9 @@ export function LiveView({ liveId }: LiveViewProps) {
                 {creatorName} to join
                 {live.accessType === 'PAID'
                   ? ' (paid lives billed separately)'
-                  : ''}
+                  : live.accessType === 'PER_MINUTE'
+                    ? ' (then billed per minute from wallet)'
+                    : ''}
                 .
               </p>
             </div>
@@ -451,6 +580,52 @@ export function LiveView({ liveId }: LiveViewProps) {
                 className="text-[13px] text-white/40 transition hover:text-white/70"
               >
                 Not now
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {phase === 'topup' && live ? (
+          <div className="mt-5 space-y-4">
+            <div>
+              <h1 className="text-lg font-bold text-white">{live.title}</h1>
+              <p className="mt-1 text-[13px] text-white/50">
+                Per-minute live · ₹{pricePerMinute}/min
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-4 text-left">
+              <p className="text-[13px] font-semibold text-amber-100">
+                Add wallet balance to join
+              </p>
+              <p className="mt-1 text-[12px] text-white/55">
+                Need at least ₹{requiredHold} held (≈{' '}
+                {Math.max(1, Math.round(requiredHold / pricePerMinute))} min at
+                ₹{pricePerMinute}/min). Charges start while you watch; BRB
+                pauses billing.
+              </p>
+            </div>
+            {error ? <p className="text-[13px] text-rose-400">{error}</p> : null}
+            <div className="grid gap-2.5">
+              <Link
+                href="/user/wallet"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-full bg-white text-[14px] font-bold text-[#07070b] transition hover:bg-white/90"
+              >
+                <Wallet className="size-4" />
+                Top up wallet
+              </Link>
+              <button
+                type="button"
+                onClick={() => void attemptJoin()}
+                className="inline-flex h-11 items-center justify-center rounded-full border border-white/15 text-[13px] font-semibold text-white/85 transition hover:bg-white/5"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={leave}
+                className="text-[13px] text-white/40 transition hover:text-white/70"
+              >
+                Go back
               </button>
             </div>
           </div>

@@ -23,10 +23,13 @@ import {
 import { api } from '@/lib/api'
 import { uploadMediaFile } from '@/lib/media-upload'
 import {
+  disableAdminLiveInvite,
+  enableAdminLiveInvite,
   endLive,
   enterPracticeAdmin,
   goPublicAdminLive,
   listCreatorLives,
+  listRaidTargetsForLive,
   pauseAdminLive,
   resumeAdminLive,
   scheduleLive,
@@ -36,6 +39,7 @@ import {
   startScheduledLive,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import { LiveRoom } from '@/components/live/LiveRoom'
 import type { AdminCreator, AdminRevenue } from '@/types/admin'
@@ -253,10 +257,15 @@ export function AdminCreatorDetail() {
   const [liveOpen, setLiveOpen] = useState(false)
   const [liveTitle, setLiveTitle] = useState('')
   const [liveDesc, setLiveDesc] = useState('')
-  const [liveAccess, setLiveAccess] = useState<'FREE' | 'PAID'>('FREE')
+  const [liveAccess, setLiveAccess] = useState<'FREE' | 'PAID' | 'PER_MINUTE'>(
+    'FREE'
+  )
   const [livePrice, setLivePrice] = useState('99')
+  const [livePricePerMinute, setLivePricePerMinute] = useState('100')
   const [emojiPrice, setEmojiPrice] = useState('9')
   const [hostCreds, setHostCreds] = useState<AgoraCreds | null>(null)
+  const [hostStreamQuality, setHostStreamQuality] =
+    useState<StreamQualityPolicy | null>(null)
   const [hostLive, setHostLive] = useState<LiveDto | null>(null)
 
   const { data: creator, isLoading } = useQuery({
@@ -561,6 +570,13 @@ export function AdminCreatorDetail() {
       if (liveAccess === 'PAID' && (!Number.isFinite(price) || price <= 0)) {
         throw new Error('Enter a valid price for a paid live')
       }
+      const ppm = Number(livePricePerMinute)
+      if (
+        liveAccess === 'PER_MINUTE' &&
+        (!Number.isFinite(ppm) || ppm <= 0)
+      ) {
+        throw new Error('Enter a valid per-minute rate')
+      }
       const tip = Number(emojiPrice)
       if (!Number.isFinite(tip) || tip <= 0) {
         throw new Error('Enter a valid emoji price')
@@ -572,6 +588,9 @@ export function AdminCreatorDetail() {
         scheduledAt: when.toISOString(),
         emojiPrice: tip,
         ...(liveAccess === 'PAID' ? { price } : {}),
+        ...(liveAccess === 'PER_MINUTE'
+          ? { pricePerMinute: ppm || 100 }
+          : {}),
       })
     },
     onSuccess: (res) => {
@@ -587,6 +606,7 @@ export function AdminCreatorDetail() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash(`Live started — ${res.notified} subscriber(s) notified`)
     },
@@ -598,6 +618,7 @@ export function AdminCreatorDetail() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash('Practice started — not visible to fans')
     },
@@ -615,18 +636,29 @@ export function AdminCreatorDetail() {
       if (!Number.isFinite(tip) || tip <= 0) {
         throw new Error('Enter a valid emoji price')
       }
+      if (
+        liveAccess === 'PER_MINUTE' &&
+        (!Number.isFinite(Number(livePricePerMinute)) ||
+          Number(livePricePerMinute) <= 0)
+      ) {
+        throw new Error('Enter a valid per-minute rate')
+      }
       return startLive(id, {
         title: liveTitle.trim(),
         description: liveDesc.trim() || null,
         accessType: liveAccess,
         emojiPrice: tip,
         ...(liveAccess === 'PAID' ? { price } : {}),
+        ...(liveAccess === 'PER_MINUTE'
+          ? { pricePerMinute: Number(livePricePerMinute) || 100 }
+          : {}),
       })
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setLiveOpen(false)
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash(`Live started — ${res.notified} subscriber(s) notified`)
     },
@@ -640,6 +672,13 @@ export function AdminCreatorDetail() {
       if (liveAccess === 'PAID' && (!Number.isFinite(price) || price <= 0)) {
         throw new Error('Enter a valid price for a paid live')
       }
+      if (
+        liveAccess === 'PER_MINUTE' &&
+        (!Number.isFinite(Number(livePricePerMinute)) ||
+          Number(livePricePerMinute) <= 0)
+      ) {
+        throw new Error('Enter a valid per-minute rate')
+      }
       const tip = Number(emojiPrice)
       if (!Number.isFinite(tip) || tip <= 0) {
         throw new Error('Enter a valid emoji price')
@@ -650,12 +689,16 @@ export function AdminCreatorDetail() {
         accessType: liveAccess,
         emojiPrice: tip,
         ...(liveAccess === 'PAID' ? { price } : {}),
+        ...(liveAccess === 'PER_MINUTE'
+          ? { pricePerMinute: Number(livePricePerMinute) || 100 }
+          : {}),
       })
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setLiveOpen(false)
       setHostCreds(res.agora)
+      setHostStreamQuality(res.streamQuality ?? null)
       setHostLive(res.live)
       flash('Practice started — not visible to fans')
     },
@@ -674,10 +717,17 @@ export function AdminCreatorDetail() {
   })
 
   const stopLive = useMutation({
-    mutationFn: (liveId: string) => endLive(liveId),
+    mutationFn: ({
+      liveId,
+      raidTargetLiveId,
+    }: {
+      liveId: string
+      raidTargetLiveId?: string
+    }) => endLive(liveId, { raidTargetLiveId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-creator-lives', id] })
       setHostCreds(null)
+      setHostStreamQuality(null)
       setHostLive(null)
       flash('Live ended')
     },
@@ -990,7 +1040,7 @@ export function AdminCreatorDetail() {
             {activeLive ? (
               <button
                 type="button"
-                onClick={() => stopLive.mutate(activeLive.id)}
+                onClick={() => stopLive.mutate({ liveId: activeLive.id })}
                 disabled={stopLive.isPending}
                 className="text-[12px] font-medium text-rose-400 hover:text-rose-300 disabled:opacity-50"
               >
@@ -1052,7 +1102,9 @@ export function AdminCreatorDetail() {
                     ? 'Warm-up — not visible to fans'
                     : activeLive.accessType === 'PAID'
                       ? `Paid · ${formatCurrency(activeLive.price ?? 0)}`
-                      : 'Free for subscribers'}
+                      : activeLive.accessType === 'PER_MINUTE'
+                        ? `₹${Number(activeLive.pricePerMinute ?? 100)}/min`
+                        : 'Free for subscribers'}
                 </p>
               </div>
               {hostCreds && hostLive?.id === activeLive.id ? (
@@ -1098,7 +1150,9 @@ export function AdminCreatorDetail() {
                         {when} ·{' '}
                         {live.accessType === 'PAID'
                           ? `Paid · ${formatCurrency(live.price ?? 0)}`
-                          : 'Free for subscribers'}
+                          : live.accessType === 'PER_MINUTE'
+                            ? `₹${Number(live.pricePerMinute ?? 100)}/min`
+                            : 'Free for subscribers'}
                       </p>
                     </div>
                     <button
@@ -1127,7 +1181,7 @@ export function AdminCreatorDetail() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => stopLive.mutate(live.id)}
+                      onClick={() => stopLive.mutate({ liveId: live.id })}
                       disabled={stopLive.isPending}
                       className="rounded-full p-1.5 text-white/40 hover:bg-white/10 hover:text-white disabled:opacity-50"
                       aria-label="Cancel scheduled live"
@@ -1886,8 +1940,8 @@ export function AdminCreatorDetail() {
               </div>
               <div>
                 <label className="text-[12px] text-white/45">Access</label>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  {(['FREE', 'PAID'] as const).map((opt) => (
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
+                  {(['FREE', 'PAID', 'PER_MINUTE'] as const).map((opt) => (
                     <button
                       key={opt}
                       type="button"
@@ -1899,7 +1953,11 @@ export function AdminCreatorDetail() {
                           : 'border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80'
                       )}
                     >
-                      {opt === 'FREE' ? 'Free for subs' : 'Paid'}
+                      {opt === 'FREE'
+                        ? 'Free'
+                        : opt === 'PAID'
+                          ? 'Paid'
+                          : 'Per min'}
                     </button>
                   ))}
                 </div>
@@ -1914,6 +1972,20 @@ export function AdminCreatorDetail() {
                     min={1}
                     value={livePrice}
                     onChange={(e) => setLivePrice(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white outline-none focus:border-white/25"
+                  />
+                </div>
+              ) : null}
+              {liveAccess === 'PER_MINUTE' ? (
+                <div>
+                  <label className="text-[12px] text-white/45">
+                    Rate (₹ / minute)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={livePricePerMinute}
+                    onChange={(e) => setLivePricePerMinute(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white outline-none focus:border-white/25"
                   />
                 </div>
@@ -1970,7 +2042,9 @@ export function AdminCreatorDetail() {
                 : 'Practice mode — not visible to fans'
               : hostLive.accessType === 'PAID'
                 ? `Paid live · ${formatCurrency(hostLive.price ?? 0)}`
-                : 'Free for subscribers'
+                : hostLive.accessType === 'PER_MINUTE'
+                  ? `₹${Number(hostLive.pricePerMinute ?? 100)}/min`
+                  : 'Free for subscribers'
           }
           initialPaused={Boolean(hostLive.isPaused)}
           initialBrbMessage={hostLive.brbMessage}
@@ -1978,14 +2052,28 @@ export function AdminCreatorDetail() {
           initialLatencyMode={
             hostLive.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
           }
+          streamQuality={hostStreamQuality ?? undefined}
           isPractice={
             Boolean(hostLive.isPractice) || hostLive.status === 'PRACTICE'
           }
+          initialInviteEnabled={Boolean(hostLive.inviteEnabled)}
+          initialInvitePrice={hostLive.invitePrice ?? null}
+          onEnableInvite={(price) =>
+            enableAdminLiveInvite(hostLive.id, price)
+          }
+          onDisableInvite={() => disableAdminLiveInvite(hostLive.id)}
           onLeave={() => {
             setHostCreds(null)
+            setHostStreamQuality(null)
             setHostLive(null)
           }}
-          onEnd={() => stopLive.mutate(hostLive.id)}
+          onEnd={(opts) =>
+            stopLive.mutate({
+              liveId: hostLive.id,
+              raidTargetLiveId: opts?.raidTargetLiveId,
+            })
+          }
+          fetchRaidTargets={() => listRaidTargetsForLive(hostLive.id)}
           onGoPublic={
             hostLive.isPractice || hostLive.status === 'PRACTICE'
               ? async () => {
@@ -2119,8 +2207,8 @@ export function AdminCreatorDetail() {
                 </div>
                 <div>
                   <label className="text-[12px] text-white/45">Access</label>
-                  <div className="mt-1.5 grid grid-cols-2 gap-2">
-                    {(['FREE', 'PAID'] as const).map((opt) => (
+                  <div className="mt-1.5 grid grid-cols-3 gap-2">
+                    {(['FREE', 'PAID', 'PER_MINUTE'] as const).map((opt) => (
                       <button
                         key={opt}
                         type="button"
@@ -2132,7 +2220,11 @@ export function AdminCreatorDetail() {
                             : 'border-white/10 bg-white/[0.03] text-white/50 hover:text-white/80'
                         )}
                       >
-                        {opt === 'FREE' ? 'Free for subs' : 'Paid'}
+                        {opt === 'FREE'
+                          ? 'Free'
+                          : opt === 'PAID'
+                            ? 'Paid'
+                            : 'Per min'}
                       </button>
                     ))}
                   </div>
@@ -2147,6 +2239,20 @@ export function AdminCreatorDetail() {
                       min={1}
                       value={livePrice}
                       onChange={(e) => setLivePrice(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white outline-none focus:border-white/25"
+                    />
+                  </div>
+                ) : null}
+                {liveAccess === 'PER_MINUTE' ? (
+                  <div>
+                    <label className="text-[12px] text-white/45">
+                      Rate (₹ / minute)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={livePricePerMinute}
+                      onChange={(e) => setLivePricePerMinute(e.target.value)}
                       className="mt-1 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-sm text-white outline-none focus:border-white/25"
                     />
                   </div>

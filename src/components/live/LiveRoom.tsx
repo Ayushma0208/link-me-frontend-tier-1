@@ -7,10 +7,27 @@ import AgoraRTC, {
   type ICameraVideoTrack,
   type IMicrophoneAudioTrack,
 } from 'agora-rtc-sdk-ng'
-import { Clapperboard, Coffee, Play, Radio, X } from 'lucide-react'
 import {
+  Clapperboard,
+  Coffee,
+  Copy,
+  Headphones,
+  Link2,
+  Loader2,
+  Play,
+  Radio,
+  SwitchCamera,
+  X,
+} from 'lucide-react'
+import {
+  DEFAULT_STREAM_QUALITY,
+  buildLiveInviteUrl,
+  disableLiveInvite,
+  enableLiveInvite,
   getLive,
   isMockAgora,
+  leaveLive,
+  listRaidTargetsMine,
   pauseCreatorLive,
   resumeCreatorLive,
   setLatencyModeMine,
@@ -18,13 +35,43 @@ import {
   type LiveDto,
   type LiveLatencyMode,
   type PauseLiveInput,
+  type StreamQualityPolicy,
+  type StreamQualityTier,
 } from '@/lib/live'
+import { detectDeviceClass, type DeviceClass } from '@/lib/device-class'
+import { flipCameraTrack } from '@/lib/agora-camera'
+import {
+  applyBeautyOptions,
+  attachBeautyProcessor,
+  beautyOptionsFromLevels,
+  createBeautyProcessor,
+  setBeautyEnabled,
+  teardownBeautyProcessor,
+  type IBeautyProcessor,
+} from '@/lib/agora-beauty'
 import {
   connectLiveSocket,
   type LiveBrbPayload,
   type LiveLatencyPayload,
 } from '@/lib/live-socket'
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
+import { FloatingReactions } from '@/components/live/FloatingReactions'
+import { LivePollOverlay } from '@/components/live/LivePollOverlay'
+import { LiveMilestoneOverlay } from '@/components/live/LiveMilestoneOverlay'
+import { LiveTopGiftersOverlay } from '@/components/live/LiveTopGiftersOverlay'
+import {
+  INITIAL_BEAUTY_UI,
+  LiveBeautyControls,
+  type BeautyUiState,
+} from '@/components/live/LiveBeautyControls'
+import { LiveForensicWatermark } from '@/components/live/LiveForensicWatermark'
+import { LiveVisibleWatermark } from '@/components/live/LiveVisibleWatermark'
+import { useAuthStore } from '@/stores/auth'
+import {
+  StreamHealthDashboard,
+  stabilityFrom,
+  type StreamHealthMetrics,
+} from '@/components/live/StreamHealthDashboard'
 
 interface LiveRoomProps {
   creds: AgoraCreds
@@ -40,11 +87,17 @@ interface LiveRoomProps {
   initialBrbImageUrl?: string | null
   /** Session Agora audience latency (default ultra-low). */
   initialLatencyMode?: LiveLatencyMode
+  /** Dual-stream profiles + recommended remote tier (from join/host grant). */
+  streamQuality?: StreamQualityPolicy
   onLeave: () => void
   /** Called after the ended message is shown (viewers → redirect home). */
   onEnded?: () => void
   /** Host-only end action (also ends the session server-side). */
-  onEnd?: () => void
+  onEnd?: (opts?: { raidTargetLiveId?: string }) => void | Promise<void>
+  /** Optional raid target list (defaults to creator /creators/me/live/raid-targets). */
+  fetchRaidTargets?: () => Promise<LiveDto[]>
+  /** Viewer: navigate to a raid target live. */
+  onRaidNavigate?: (targetLiveId: string) => void
   /** Override pause API (e.g. admin host). Defaults to creator self-service. */
   onPause?: (input: PauseLiveInput) => Promise<{ live: LiveDto }>
   /** Override resume API (e.g. admin host). Defaults to creator self-service. */
@@ -53,13 +106,52 @@ interface LiveRoomProps {
   onSetLatency?: (mode: LiveLatencyMode) => Promise<{ live: LiveDto }>
   /** Private warm-up — host only until go-public. */
   isPractice?: boolean
+  /** Seed invite-only flag when host re-enters. */
+  initialInviteEnabled?: boolean
+  initialInvitePrice?: number | null
+  /** Override invite APIs (e.g. admin host). */
+  onEnableInvite?: (invitePrice?: number | null) => Promise<{
+    live: LiveDto
+    inviteToken: string
+  }>
+  onDisableInvite?: () => Promise<{ live: LiveDto }>
   /** Host flips practice → public LIVE (same Agora channel). */
   onGoPublic?: () => Promise<{ live: LiveDto }>
+  /** Viewer per-minute billing seed from join grant. */
+  initialBilling?: {
+    mode: 'PER_MINUTE'
+    pricePerMinute: number
+    heldMinutes: number
+    currency: string
+  } | null
 }
 
 /** Agora audience level: 2 = ultra-low, 1 = low (normal/stable). */
 function agoraAudienceLevel(mode: LiveLatencyMode): 1 | 2 {
   return mode === 'NORMAL' ? 1 : 2
+}
+
+/** Agora RemoteStreamType: 0 = high, 1 = low. */
+function agoraRemoteStreamType(tier: StreamQualityTier): 0 | 1 {
+  return tier === 'LOW' ? 1 : 0
+}
+
+function resolveInitialTier(
+  policy: StreamQualityPolicy,
+  deviceClass: DeviceClass
+): StreamQualityTier {
+  if (deviceClass === 'BUDGET') return 'LOW'
+  return policy.recommended === 'LOW' ? 'LOW' : 'HIGH'
+}
+
+/** Label for the Auto quality badge from dual-stream tier + profile height. */
+function autoQualityLabel(
+  tier: StreamQualityTier,
+  policy: StreamQualityPolicy
+): string {
+  const height =
+    tier === 'LOW' ? policy.low.height : policy.high.height
+  return `Auto · ${height}p`
 }
 
 function containerHasVideo(el: HTMLElement | null): boolean {
@@ -100,20 +192,42 @@ export function LiveRoom({
   initialBrbMessage = null,
   initialBrbImageUrl = null,
   initialLatencyMode = 'ULTRA_LOW',
+  streamQuality: streamQualityProp,
   onLeave,
   onEnded,
   onEnd,
+  fetchRaidTargets,
+  onRaidNavigate,
   onPause,
   onResume,
   onSetLatency,
   isPractice: isPracticeProp = false,
+  initialInviteEnabled = false,
+  initialInvitePrice = null,
+  onEnableInvite,
+  onDisableInvite,
   onGoPublic,
+  initialBilling = null,
 }: LiveRoomProps) {
   const isHost = creds.role === 'host'
+  const viewerUserId = useAuthStore((s) => s.user?.id ?? null)
+  const viewerUsername = useAuthStore((s) => s.user?.username ?? null)
+  const streamQuality = streamQualityProp ?? DEFAULT_STREAM_QUALITY
+  const deviceClassRef = useRef<DeviceClass>(
+    typeof navigator !== 'undefined' ? detectDeviceClass() : 'UNKNOWN'
+  )
+  const initialStreamTier = resolveInitialTier(
+    streamQuality,
+    deviceClassRef.current
+  )
+  const streamTierRef = useRef<StreamQualityTier>(initialStreamTier)
+  const poorDownlinkStreakRef = useRef(0)
+  const goodDownlinkStreakRef = useRef(0)
   const [status, setStatus] = useState<
     'connecting' | 'live' | 'waiting' | 'ended'
   >('connecting')
-  const [, setHasVideoEl] = useState(false)
+  const [hasVideoEl, setHasVideoEl] = useState(false)
+  const [waitingForHostVideo, setWaitingForHostVideo] = useState(false)
   const [isPaused, setIsPaused] = useState(initialPaused)
   const [isPractice, setIsPractice] = useState(isPracticeProp)
   const [latencyMode, setLatencyMode] =
@@ -124,21 +238,93 @@ export function LiveRoom({
   const [brbImageUrl, setBrbImageUrl] = useState<string | null>(
     initialBrbImageUrl
   )
+  const [billingInfo, setBillingInfo] = useState<{
+    pricePerMinute: number
+    billedMinutes: number
+    heldMinutes: number
+    totalAmount: string
+    paused?: boolean
+  } | null>(
+    initialBilling
+      ? {
+          pricePerMinute: initialBilling.pricePerMinute,
+          billedMinutes: 0,
+          heldMinutes: initialBilling.heldMinutes,
+          totalAmount: '0.00',
+        }
+      : null
+  )
+  const [billingLow, setBillingLow] = useState(false)
+  const [raidPickerOpen, setRaidPickerOpen] = useState(false)
+  const [raidTargets, setRaidTargets] = useState<LiveDto[]>([])
+  const [raidTargetsLoading, setRaidTargetsLoading] = useState(false)
+  const [raidEnding, setRaidEnding] = useState(false)
+  const [raidRedirect, setRaidRedirect] = useState<{
+    targetLiveId: string
+    title: string
+    creatorName: string
+    seconds: number
+  } | null>(null)
+  const raidHandledRef = useRef(false)
   const [brbBusy, setBrbBusy] = useState(false)
   const [goPublicBusy, setGoPublicBusy] = useState(false)
   const [latencyBusy, setLatencyBusy] = useState(false)
+  const [flipBusy, setFlipBusy] = useState(false)
+  const [inviteEnabled, setInviteEnabled] = useState(initialInviteEnabled)
+  const [inviteToken, setInviteToken] = useState<string | null>(null)
+  const [invitePrice, setInvitePrice] = useState<number | null>(
+    initialInvitePrice != null ? Number(initialInvitePrice) : null
+  )
+  const [inviteBusy, setInviteBusy] = useState(false)
+  const [inviteCopied, setInviteCopied] = useState(false)
+  /** Viewer remote dual-stream tier (HIGH/LOW) for Auto quality badge. */
+  const [viewerStreamTier, setViewerStreamTier] =
+    useState<StreamQualityTier>(initialStreamTier)
+  /** Viewer-only: tab/app minimized — remote video off, audio still playing. */
+  const [audioOnlyMode, setAudioOnlyMode] = useState(false)
+  /** Host-only: real-time Agora send stats for the health dashboard. */
+  const [healthMetrics, setHealthMetrics] = useState<StreamHealthMetrics | null>(
+    null
+  )
+  const [healthExpanded, setHealthExpanded] = useState(false)
+  const [pollToolbarEl, setPollToolbarEl] = useState<HTMLDivElement | null>(
+    null
+  )
+  const [goalToolbarEl, setGoalToolbarEl] = useState<HTMLDivElement | null>(
+    null
+  )
+  const [beautyOpen, setBeautyOpen] = useState(false)
+  const [beautyUi, setBeautyUi] = useState<BeautyUiState>(INITIAL_BEAUTY_UI)
+  const [beautyOverloaded, setBeautyOverloaded] = useState(false)
+  const beautyProcessorRef = useRef<IBeautyProcessor | null>(null)
+  const beautyUiRef = useRef(beautyUi)
+  beautyUiRef.current = beautyUi
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
   const micRef = useRef<IMicrophoneAudioTrack | null>(null)
   const endedRef = useRef(false)
   const leavingRef = useRef(false)
+  const backgroundAudioRef = useRef(false)
+  const uplinkQualityRef = useRef<number | null>(null)
+  const isPausedRef = useRef(isPaused)
+  isPausedRef.current = isPaused
   const latencyModeRef = useRef(latencyMode)
   latencyModeRef.current = latencyMode
 
   useEffect(() => {
     setIsPractice(isPracticeProp)
   }, [isPracticeProp])
+
+  useEffect(() => {
+    setInviteEnabled(initialInviteEnabled)
+  }, [initialInviteEnabled])
+
+  useEffect(() => {
+    setInvitePrice(
+      initialInvitePrice != null ? Number(initialInvitePrice) : null
+    )
+  }, [initialInvitePrice])
 
   useEffect(() => {
     setLatencyMode(initialLatencyMode)
@@ -185,6 +371,11 @@ export function LiveRoom({
   function markEnded() {
     if (endedRef.current) return
     endedRef.current = true
+    backgroundAudioRef.current = false
+    setAudioOnlyMode(false)
+    setHealthMetrics(null)
+    setHealthExpanded(false)
+    uplinkQualityRef.current = null
     setIsPaused(false)
     setStatus('ended')
   }
@@ -193,6 +384,62 @@ export function LiveRoom({
     if (endedRef.current) return
     setHasVideoEl(true)
     setStatus('live')
+  }
+
+  function beginRaidRedirect(info: {
+    targetLiveId: string
+    title: string
+    creatorName: string
+  }) {
+    if (isHost) return
+    endedRef.current = true
+    setStatus('ended')
+    setRaidRedirect({ ...info, seconds: 5 })
+  }
+
+  async function openRaidPicker() {
+    if (!liveId || raidTargetsLoading) return
+    setRaidPickerOpen(true)
+    setRaidTargetsLoading(true)
+    try {
+      const items = fetchRaidTargets
+        ? await fetchRaidTargets()
+        : await listRaidTargetsMine()
+      setRaidTargets(items)
+    } catch (err) {
+      console.error('Failed to load raid targets', err)
+      setRaidTargets([])
+    } finally {
+      setRaidTargetsLoading(false)
+    }
+  }
+
+  async function confirmEnd(raidTargetLiveId?: string) {
+    if (raidEnding) return
+    setRaidEnding(true)
+    try {
+      await cleanup()
+      if (onEnd) await onEnd(raidTargetLiveId ? { raidTargetLiveId } : {})
+      else onLeave()
+    } finally {
+      setRaidEnding(false)
+      setRaidPickerOpen(false)
+    }
+  }
+
+  async function handleEndClick() {
+    if (!isHost) {
+      await cleanup()
+      onLeave()
+      return
+    }
+    if (isPractice || !onEnd) {
+      await cleanup()
+      if (onEnd) await onEnd()
+      else onLeave()
+      return
+    }
+    await openRaidPicker()
   }
 
   // Watch the player DOM — if Agora put a <video> in, clear the waiting overlay.
@@ -216,6 +463,19 @@ export function LiveRoom({
     }
   }, [])
 
+  // Audience: after ~6s with no remote video, explain the black screen.
+  useEffect(() => {
+    if (isHost || isPaused || status !== 'live' || hasVideoEl || audioOnlyMode) {
+      setWaitingForHostVideo(false)
+      return
+    }
+    const t = window.setTimeout(() => {
+      if (endedRef.current || isPausedRef.current) return
+      setWaitingForHostVideo(true)
+    }, 6000)
+    return () => window.clearTimeout(t)
+  }, [isHost, isPaused, status, hasVideoEl, audioOnlyMode])
+
   // Viewers: poll API so we detect end / BRB even if Agora or socket miss.
   useEffect(() => {
     if (!liveId) return
@@ -226,6 +486,23 @@ export function LiveRoom({
         const details = await getLive(liveId)
         if (cancelled) return
         if (details.live.status === 'ENDED') {
+          const raid = details.live.raid
+          if (
+            !isHost &&
+            raid?.targetLiveId &&
+            !raidHandledRef.current
+          ) {
+            raidHandledRef.current = true
+            beginRaidRedirect({
+              targetLiveId: raid.targetLiveId,
+              title: raid.target?.title ?? 'Live',
+              creatorName:
+                raid.target?.creator?.name ??
+                raid.target?.creator?.username ??
+                'creator',
+            })
+            return
+          }
           markEnded()
           return
         }
@@ -277,20 +554,108 @@ export function LiveRoom({
       if (!isHost) void applyAudienceLatency(nextMode)
     }
 
+    const onBillingTick = (payload: {
+      liveId?: string
+      billedMinutes?: number
+      heldMinutes?: number
+      pricePerMinute?: number
+      totalAmount?: string
+      paused?: boolean
+    }) => {
+      if (payload.liveId !== liveId || isHost) return
+      setBillingInfo({
+        pricePerMinute: Number(payload.pricePerMinute ?? 0),
+        billedMinutes: Number(payload.billedMinutes ?? 0),
+        heldMinutes: Number(payload.heldMinutes ?? 0),
+        totalAmount: String(payload.totalAmount ?? '0.00'),
+        paused: Boolean(payload.paused),
+      })
+      setBillingLow(false)
+    }
+
+    const onBillingLow = (payload: { liveId?: string }) => {
+      if (payload.liveId !== liveId || isHost) return
+      setBillingLow(true)
+    }
+
+    const onBillingExhausted = (payload: { liveId?: string; reason?: string }) => {
+      if (payload.liveId !== liveId || isHost) return
+      void cleanup().then(() => {
+        ;(onEnded ?? onLeave)()
+      })
+    }
+
+    const onRaid = (payload: {
+      liveId?: string
+      fromLiveId?: string
+      targetLiveId?: string
+      target?: {
+        id?: string
+        title?: string
+        creator?: { name?: string; username?: string }
+      }
+    }) => {
+      if (isHost) return
+      const fromId = payload.fromLiveId ?? payload.liveId
+      if (fromId !== liveId || !payload.targetLiveId) return
+      if (raidHandledRef.current) return
+      raidHandledRef.current = true
+      beginRaidRedirect({
+        targetLiveId: payload.targetLiveId,
+        title: payload.target?.title ?? 'Live',
+        creatorName:
+          payload.target?.creator?.name ??
+          payload.target?.creator?.username ??
+          'creator',
+      })
+    }
+
     socket.emit('live:join', { liveId })
     socket.on('live:brb', onBrb)
     socket.on('live:latency', onLatency)
+    socket.on('live:billing-tick', onBillingTick)
+    socket.on('live:billing-low', onBillingLow)
+    socket.on('live:billing-exhausted', onBillingExhausted)
+    socket.on('live:raid', onRaid)
 
     return () => {
       socket.off('live:brb', onBrb)
       socket.off('live:latency', onLatency)
+      socket.off('live:billing-tick', onBillingTick)
+      socket.off('live:billing-low', onBillingLow)
+      socket.off('live:billing-exhausted', onBillingExhausted)
+      socket.off('live:raid', onRaid)
       socket.disconnect()
     }
   }, [isHost, liveId])
 
-  // After showing "Live is ended", redirect viewers home.
+  // Raid countdown → navigate to target live.
   useEffect(() => {
-    if (status !== 'ended' || isHost) return
+    if (!raidRedirect) return
+    if (raidRedirect.seconds <= 0) {
+      const targetId = raidRedirect.targetLiveId
+      void cleanup().then(() => {
+        if (onRaidNavigate) onRaidNavigate(targetId)
+        else if (typeof window !== 'undefined') {
+          window.location.href = `/live/${targetId}`
+        } else {
+          ;(onEnded ?? onLeave)()
+        }
+      })
+      return
+    }
+    const t = window.setTimeout(() => {
+      setRaidRedirect((prev) =>
+        prev ? { ...prev, seconds: prev.seconds - 1 } : prev
+      )
+    }, 1000)
+    return () => window.clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- countdown tick
+  }, [raidRedirect])
+
+  // After showing "Live is ended", redirect viewers home (unless raiding).
+  useEffect(() => {
+    if (status !== 'ended' || isHost || raidRedirect) return
     const timer = setTimeout(() => {
       void cleanup().then(() => {
         ;(onEnded ?? onLeave)()
@@ -298,7 +663,7 @@ export function LiveRoom({
     }, 2200)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to ended
-  }, [status, isHost])
+  }, [status, isHost, raidRedirect])
 
   // Join once per channel + uid. Do not depend on the whole creds object —
   // go-public returns a refreshed token object and must not tear down the host
@@ -308,6 +673,7 @@ export function LiveRoom({
   useEffect(() => {
     let mounted = true
     let stuckTimer: number | undefined
+    let detachBackgroundAudio: (() => void) | undefined
     const mock = isMockAgora(creds)
     leavingRef.current = false
 
@@ -325,6 +691,7 @@ export function LiveRoom({
     }
 
     function playRemoteVideo(user: IAgoraRTCRemoteUser) {
+      if (backgroundAudioRef.current) return
       const track = user.videoTrack
       const el = videoRef.current
       if (!track || !el) return
@@ -334,18 +701,215 @@ export function LiveRoom({
       if (mounted) markLive()
     }
 
+    async function applyRemoteStreamTier(
+      client: IAgoraRTCClient,
+      uid: IAgoraRTCRemoteUser['uid'],
+      tier: StreamQualityTier
+    ) {
+      try {
+        await client.setRemoteVideoStreamType(uid, agoraRemoteStreamType(tier))
+        // Fallback to low stream when the network worsens (Agora safety net).
+        await client.setStreamFallbackOption(uid, 1)
+        streamTierRef.current = tier
+        if (mounted) setViewerStreamTier(tier)
+      } catch (err) {
+        console.warn('Failed to set remote stream type', err)
+      }
+    }
+
     async function subscribeRemote(
       client: IAgoraRTCClient,
       user: IAgoraRTCRemoteUser,
       mediaType: 'audio' | 'video'
     ) {
+      // Viewers in background audio mode skip video to save bandwidth.
+      if (mediaType === 'video' && backgroundAudioRef.current) return
       try {
         await client.subscribe(user, mediaType)
-        if (mediaType === 'video') playRemoteVideo(user)
+        if (mediaType === 'video') {
+          if (backgroundAudioRef.current) {
+            try {
+              await client.unsubscribe(user, 'video')
+            } catch {
+              // ignore
+            }
+            return
+          }
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
+          playRemoteVideo(user)
+        }
         if (mediaType === 'audio') user.audioTrack?.play()
       } catch (err) {
         console.error('Agora subscribe failed', err)
       }
+    }
+
+    function setMediaSessionPlaying(playing: boolean) {
+      if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) {
+        return
+      }
+      try {
+        if (playing) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: title || 'Live',
+            artist: subtitle?.trim() || 'LinkMe Live',
+            album: 'LinkMe',
+          })
+          navigator.mediaSession.playbackState = 'playing'
+        } else {
+          navigator.mediaSession.playbackState = 'none'
+          navigator.mediaSession.metadata = null
+        }
+      } catch {
+        // Media Session is best-effort (browser support varies).
+      }
+    }
+
+    /** Stop remote video while keeping audio — used when the tab/app is hidden. */
+    async function enterBackgroundAudio(client: IAgoraRTCClient) {
+      if (isHost || mock || !mounted || leavingRef.current || endedRef.current) {
+        return
+      }
+      backgroundAudioRef.current = true
+      if (mounted) setAudioOnlyMode(true)
+      setMediaSessionPlaying(true)
+
+      for (const user of client.remoteUsers) {
+        if (!user.videoTrack && !user.hasVideo) continue
+        try {
+          user.videoTrack?.stop()
+          await client.unsubscribe(user, 'video')
+        } catch (err) {
+          console.warn('Failed to drop remote video for background audio', err)
+        }
+      }
+      if (videoRef.current) videoRef.current.replaceChildren()
+
+      // Re-assert audio playback — some browsers pause media on hide.
+      for (const user of client.remoteUsers) {
+        try {
+          user.audioTrack?.play()
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    async function exitBackgroundAudio(client: IAgoraRTCClient) {
+      if (isHost || !mounted || leavingRef.current) return
+      backgroundAudioRef.current = false
+      if (mounted) setAudioOnlyMode(false)
+      setMediaSessionPlaying(false)
+
+      for (const user of client.remoteUsers) {
+        if (!mounted || leavingRef.current) return
+        if (user.hasVideo && !user.videoTrack) {
+          await subscribeRemote(client, user, 'video')
+        } else if (user.videoTrack) {
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
+          playRemoteVideo(user)
+        }
+        if (user.audioTrack) {
+          try {
+            user.audioTrack.play()
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    function attachBackgroundAudioMode(client: IAgoraRTCClient) {
+      if (isHost || mock) return
+
+      const onVisibility = () => {
+        if (!mounted || leavingRef.current || endedRef.current) return
+        if (document.visibilityState === 'hidden') {
+          void enterBackgroundAudio(client)
+        } else {
+          void exitBackgroundAudio(client)
+        }
+      }
+
+      // Already backgrounded at join (e.g. opened in a background tab).
+      if (document.visibilityState === 'hidden') {
+        void enterBackgroundAudio(client)
+      }
+
+      document.addEventListener('visibilitychange', onVisibility)
+      return () => {
+        document.removeEventListener('visibilitychange', onVisibility)
+        backgroundAudioRef.current = false
+        setMediaSessionPlaying(false)
+        if (mounted) setAudioOnlyMode(false)
+      }
+    }
+
+    function attachNetworkQualityAdaptation(client: IAgoraRTCClient) {
+      if (isHost) return
+      client.on('network-quality', (stats) => {
+        if (!mounted || leavingRef.current) return
+        const downlink = stats.downlinkNetworkQuality
+        // 0 = unknown — ignore
+        if (!downlink) return
+
+        const budgetLocked = deviceClassRef.current === 'BUDGET'
+        const current = streamTierRef.current
+
+        // Very poor (≥5): downshift immediately on next check.
+        if (downlink >= 5) {
+          poorDownlinkStreakRef.current += 1
+          goodDownlinkStreakRef.current = 0
+        } else if (downlink >= 4) {
+          poorDownlinkStreakRef.current += 1
+          goodDownlinkStreakRef.current = 0
+        } else if (downlink <= 2) {
+          goodDownlinkStreakRef.current += 1
+          poorDownlinkStreakRef.current = 0
+        } else {
+          poorDownlinkStreakRef.current = 0
+          goodDownlinkStreakRef.current = 0
+          return
+        }
+
+        const poorNeeded = downlink >= 5 ? 1 : 2
+        const nextTier: StreamQualityTier | null =
+          poorDownlinkStreakRef.current >= poorNeeded && current === 'HIGH'
+            ? 'LOW'
+            : !budgetLocked &&
+                goodDownlinkStreakRef.current >= 3 &&
+                current === 'LOW'
+              ? 'HIGH'
+              : null
+
+        if (!nextTier) return
+
+        poorDownlinkStreakRef.current = 0
+        goodDownlinkStreakRef.current = 0
+        streamTierRef.current = nextTier
+        if (mounted) setViewerStreamTier(nextTier)
+        for (const user of client.remoteUsers) {
+          if (!user.hasVideo && !user.videoTrack) continue
+          void applyRemoteStreamTier(client, user.uid, nextTier)
+        }
+      })
+    }
+
+    /** Host: track uplink for the stream health dashboard. */
+    function attachHostUplinkMonitoring(client: IAgoraRTCClient) {
+      if (!isHost) return
+      client.on('network-quality', (stats) => {
+        if (!mounted || leavingRef.current) return
+        uplinkQualityRef.current = stats.uplinkNetworkQuality
+      })
     }
 
     /** Host may already be publishing — remotes can appear slightly after join. */
@@ -355,6 +919,11 @@ export function LiveRoom({
         if (user.hasVideo && !user.videoTrack) {
           await subscribeRemote(client, user, 'video')
         } else if (user.videoTrack) {
+          await applyRemoteStreamTier(
+            client,
+            user.uid,
+            streamTierRef.current
+          )
           playRemoteVideo(user)
         }
         if (user.hasAudio && !user.audioTrack) {
@@ -432,11 +1001,38 @@ export function LiveRoom({
           }
         })
 
+        attachNetworkQualityAdaptation(client)
+        attachHostUplinkMonitoring(client)
+        detachBackgroundAudio = attachBackgroundAudioMode(client)
+
         await joinChannel(client)
         if (!mounted) return
 
         if (isHost) {
-          const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks()
+          // Dual-stream so each viewer can pick HIGH vs LOW bitrate.
+          try {
+            client.setLowStreamParameter({
+              width: streamQuality.low.width,
+              height: streamQuality.low.height,
+              framerate: streamQuality.low.frameRate,
+              bitrate: streamQuality.low.bitrate,
+            })
+            await client.enableDualStream()
+          } catch (err) {
+            console.warn('Failed to enable Agora dual-stream', err)
+          }
+
+          const [mic, cam] = await AgoraRTC.createMicrophoneAndCameraTracks(
+            undefined,
+            {
+              encoderConfig: {
+                width: streamQuality.high.width,
+                height: streamQuality.high.height,
+                frameRate: streamQuality.high.frameRate,
+                bitrateMax: streamQuality.high.bitrate,
+              },
+            }
+          )
           if (!mounted) {
             mic.close()
             cam.close()
@@ -444,6 +1040,36 @@ export function LiveRoom({
           }
           micRef.current = mic
           camRef.current = cam
+
+          // Host-only: Agora Beauty Effect on published camera track.
+          try {
+            const processor = createBeautyProcessor()
+            beautyProcessorRef.current = processor
+            processor.onoverload = () => {
+              setBeautyOverloaded(true)
+              setBeautyUi((prev) => ({ ...prev, enabled: false }))
+              void setBeautyEnabled(processor, false)
+            }
+            const levels = beautyUiRef.current
+            await attachBeautyProcessor(
+              cam,
+              processor,
+              beautyOptionsFromLevels({
+                contrast: levels.contrast,
+                lightening: levels.lightening,
+                smoothness: levels.smoothness,
+                sharpness: levels.sharpness,
+                redness: levels.redness,
+              })
+            )
+            if (!levels.enabled) {
+              await setBeautyEnabled(processor, false)
+            }
+          } catch (err) {
+            console.warn('Beauty effect unavailable', err)
+            beautyProcessorRef.current = null
+          }
+
           if (videoRef.current) {
             videoRef.current.replaceChildren()
             cam.play(videoRef.current)
@@ -457,7 +1083,12 @@ export function LiveRoom({
         } else {
           await subscribeExistingRemotes(client)
           // Remotes / tracks often arrive a beat after join on rejoin.
-          for (let i = 0; i < 10 && mounted; i++) {
+          // Skip the wait when already in background audio (no video expected).
+          for (
+            let i = 0;
+            i < 10 && mounted && !backgroundAudioRef.current;
+            i++
+          ) {
             if (containerHasVideo(videoRef.current)) break
             await delay(300)
             await subscribeExistingRemotes(client)
@@ -486,22 +1117,140 @@ export function LiveRoom({
     return () => {
       mounted = false
       leavingRef.current = true
+      detachBackgroundAudio?.()
+      backgroundAudioRef.current = false
+      setAudioOnlyMode(false)
+      setHealthMetrics(null)
+      uplinkQualityRef.current = null
       if (stuckTimer != null) window.clearTimeout(stuckTimer)
       const client = clientRef.current
       clientRef.current = null
       const cam = camRef.current
       const mic = micRef.current
+      const beauty = beautyProcessorRef.current
+      beautyProcessorRef.current = null
       camRef.current = null
       micRef.current = null
-      cam?.close()
-      mic?.close()
-      void teardownClient(client)
+      void teardownBeautyProcessor(cam, beauty).finally(() => {
+        cam?.close()
+        mic?.close()
+        void teardownClient(client)
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- join once per channel/uid
   }, [agoraJoinKey, isHost])
 
+  // Host: apply beauty slider / toggle changes to the live processor.
+  useEffect(() => {
+    if (!isHost) return
+    const processor = beautyProcessorRef.current
+    if (!processor) return
+    applyBeautyOptions(
+      processor,
+      beautyOptionsFromLevels({
+        contrast: beautyUi.contrast,
+        lightening: beautyUi.lightening,
+        smoothness: beautyUi.smoothness,
+        sharpness: beautyUi.sharpness,
+        redness: beautyUi.redness,
+      })
+    )
+    void setBeautyEnabled(processor, beautyUi.enabled).catch(() => {
+      /* ignore */
+    })
+  }, [isHost, beautyUi])
+
+  // Host: poll Agora local send stats for the stream health dashboard.
+  useEffect(() => {
+    if (!isHost || status === 'ended') {
+      if (status === 'ended') setHealthMetrics(null)
+      return
+    }
+
+    if (isMockAgora(creds) || status === 'connecting') {
+      setHealthMetrics({
+        sendBitrateBps: null,
+        sendFps: null,
+        sendWidth: null,
+        sendHeight: null,
+        packetLossPercent: null,
+        rttMs: null,
+        uplinkQuality: null,
+        stability: isPausedRef.current ? 'paused' : 'unknown',
+        paused: isPausedRef.current,
+      })
+      return
+    }
+
+    const normalizeLossPercent = (raw: number | undefined): number | null => {
+      if (raw == null || !Number.isFinite(raw) || raw < 0) return null
+      // Agora may report 0–1 fraction or already-as-percent.
+      return raw <= 1 ? raw * 100 : raw
+    }
+
+    const tick = () => {
+      const client = clientRef.current
+      if (!client || leavingRef.current || endedRef.current) return
+      const paused = isPausedRef.current
+      try {
+        const video = client.getLocalVideoStats()
+        const rtc = client.getRTCStats()
+        const uplink = uplinkQualityRef.current
+        const packetLossPercent = paused
+          ? null
+          : normalizeLossPercent(video?.currentPacketLossRate)
+        const rttMs = paused
+          ? null
+          : typeof rtc?.RTT === 'number' && Number.isFinite(rtc.RTT)
+            ? rtc.RTT
+            : typeof video?.sendRttMs === 'number' &&
+                Number.isFinite(video.sendRttMs)
+              ? video.sendRttMs
+              : null
+
+        setHealthMetrics({
+          sendBitrateBps: paused ? null : (video?.sendBitrate ?? null),
+          sendFps: paused
+            ? null
+            : (video?.sendFrameRate ?? video?.captureFrameRate ?? null),
+          sendWidth: paused ? null : (video?.sendResolutionWidth ?? null),
+          sendHeight: paused ? null : (video?.sendResolutionHeight ?? null),
+          packetLossPercent,
+          rttMs,
+          uplinkQuality: uplink,
+          stability: stabilityFrom({
+            uplinkQuality: uplink,
+            packetLossPercent: packetLossPercent ?? 0,
+            rttMs: rttMs ?? 0,
+            paused,
+          }),
+          paused,
+        })
+      } catch (err) {
+        console.warn('Stream health poll failed', err)
+      }
+    }
+
+    tick()
+    const interval = window.setInterval(tick, 1000)
+    return () => window.clearInterval(interval)
+  }, [agoraJoinKey, creds, isHost, status])
+
   async function cleanup() {
     leavingRef.current = true
+    backgroundAudioRef.current = false
+    setAudioOnlyMode(false)
+    setHealthMetrics(null)
+    setHealthExpanded(false)
+    uplinkQualityRef.current = null
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'none'
+        navigator.mediaSession.metadata = null
+      } catch {
+        // ignore
+      }
+    }
     const client = clientRef.current
     clientRef.current = null
     camRef.current?.close()
@@ -509,8 +1258,112 @@ export function LiveRoom({
     camRef.current = null
     micRef.current = null
     await teardownClient(client)
+    if (!isHost && liveId) {
+      try {
+        await leaveLive(liveId)
+      } catch {
+        // ignore — billing may already have stopped
+      }
+    }
     // Give Agora a beat to release the stable UID before a quick rejoin.
     await delay(400)
+  }
+
+  async function handleFlipCamera() {
+    if (!isHost || isPaused || flipBusy || leavingRef.current) return
+    const cam = camRef.current
+    if (!cam) return
+    setFlipBusy(true)
+    try {
+      const result = await flipCameraTrack(cam)
+      if (!result.ok) {
+        console.warn('Flip camera:', result.message)
+        return
+      }
+      // Re-attach local preview if Agora cleared the container.
+      if (videoRef.current) {
+        videoRef.current.replaceChildren()
+        cam.play(videoRef.current)
+      }
+    } catch (err) {
+      console.error('Failed to flip camera', err)
+    } finally {
+      setFlipBusy(false)
+    }
+  }
+
+  async function handleEnableInvite() {
+    if (!isHost || !liveId || inviteBusy) return
+    const raw = window.prompt(
+      'Private invite price (₹)?\n• Leave empty = use this live’s FREE/PAID price\n• 0 = free for invitees\n• e.g. 199 = charge ₹199 via invite link',
+      invitePrice != null ? String(invitePrice) : ''
+    )
+    if (raw === null) return
+    let priceArg: number | null | undefined = undefined
+    const trimmed = raw.trim()
+    if (trimmed !== '') {
+      const n = Number(trimmed)
+      if (!Number.isFinite(n) || n < 0) {
+        window.alert('Enter a valid price (0 or more), or leave empty.')
+        return
+      }
+      priceArg = n
+    }
+    setInviteBusy(true)
+    setInviteCopied(false)
+    try {
+      const result = onEnableInvite
+        ? await onEnableInvite(priceArg)
+        : await enableLiveInvite(liveId, priceArg)
+      setInviteEnabled(Boolean(result.live.inviteEnabled))
+      setInvitePrice(
+        result.live.invitePrice != null ? Number(result.live.invitePrice) : null
+      )
+      setInviteToken(result.inviteToken)
+      const url = buildLiveInviteUrl(liveId, result.inviteToken)
+      try {
+        await navigator.clipboard.writeText(url)
+        setInviteCopied(true)
+      } catch {
+        // clipboard may be blocked
+      }
+    } catch (err) {
+      console.error('Failed to enable invite', err)
+    } finally {
+      setInviteBusy(false)
+    }
+  }
+
+  async function handleCopyInvite() {
+    if (!liveId || !inviteToken) {
+      await handleEnableInvite()
+      return
+    }
+    const url = buildLiveInviteUrl(liveId, inviteToken)
+    try {
+      await navigator.clipboard.writeText(url)
+      setInviteCopied(true)
+    } catch (err) {
+      console.error('Failed to copy invite', err)
+    }
+  }
+
+  async function handleDisableInvite() {
+    if (!isHost || !liveId || inviteBusy) return
+    setInviteBusy(true)
+    try {
+      const result = onDisableInvite
+        ? await onDisableInvite()
+        : await disableLiveInvite(liveId)
+      setInviteEnabled(Boolean(result.live.inviteEnabled))
+      setInvitePrice(null)
+      setInviteToken(null)
+      setInviteCopied(false)
+    } catch (err) {
+      console.error('Failed to disable invite', err)
+    } finally {
+      setInviteBusy(false)
+    }
   }
 
   async function handlePause() {
@@ -603,7 +1456,7 @@ export function LiveRoom({
         : 'Connecting to stream…'
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-black">
       <div className="relative z-30 flex items-center justify-between gap-3 p-4">
         <div className="flex items-center gap-2.5 min-w-0">
           {status === 'ended' ? (
@@ -619,6 +1472,11 @@ export function LiveRoom({
             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
               BRB
             </span>
+          ) : audioOnlyMode ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/90 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black">
+              <Headphones className="size-3" />
+              Audio
+            </span>
           ) : status === 'connecting' ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white/70">
               Connecting
@@ -629,6 +1487,40 @@ export function LiveRoom({
               Live
             </span>
           )}
+          {isHost && status !== 'ended' ? (
+            <StreamHealthDashboard
+              metrics={healthMetrics}
+              expanded={healthExpanded}
+              onToggle={() => setHealthExpanded((open) => !open)}
+            />
+          ) : null}
+          {!isHost &&
+          status !== 'ended' &&
+          status !== 'connecting' &&
+          !isMockAgora(creds) ? (
+            <span
+              className="inline-flex shrink-0 items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/80"
+              title="Adaptive bitrate — switches with your connection"
+            >
+              {autoQualityLabel(viewerStreamTier, streamQuality)}
+            </span>
+          ) : null}
+          {!isHost && billingInfo && status !== 'ended' ? (
+            <span
+              className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                billingLow
+                  ? 'border border-amber-400/40 bg-amber-500/20 text-amber-100'
+                  : 'border border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
+              }`}
+              title="Wallet per-minute billing"
+            >
+              ₹{billingInfo.pricePerMinute}/min
+              {billingInfo.billedMinutes > 0
+                ? ` · ${billingInfo.billedMinutes}m · ₹${billingInfo.totalAmount}`
+                : ''}
+              {billingInfo.paused ? ' · paused' : ''}
+            </span>
+          ) : null}
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-white">{title}</p>
             {subtitle ? (
@@ -666,6 +1558,12 @@ export function LiveRoom({
                 </button>
               </div>
             ) : null}
+            {isHost && liveId && !isPractice ? (
+              <div className="flex items-center gap-1.5">
+                <div ref={setPollToolbarEl} className="relative" />
+                <div ref={setGoalToolbarEl} className="relative" />
+              </div>
+            ) : null}
             {isHost && isPractice && onGoPublic ? (
               <button
                 type="button"
@@ -675,6 +1573,77 @@ export function LiveRoom({
               >
                 <Radio className="size-4" />
                 {goPublicBusy ? 'Going live…' : 'Go live to audience'}
+              </button>
+            ) : null}
+            {isHost && liveId ? (
+              inviteEnabled ? (
+                <div className="flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={inviteBusy}
+                      onClick={() => void handleCopyInvite()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/90 px-3.5 py-2 text-[13px] font-semibold text-black transition hover:bg-emerald-400 disabled:opacity-50"
+                      title="Copy private invite link"
+                    >
+                      <Copy className="size-4" />
+                      {inviteCopied
+                        ? 'Copied!'
+                        : inviteToken
+                          ? invitePrice != null
+                            ? `Copy · ₹${invitePrice}`
+                            : 'Copy invite'
+                          : 'Rotate & copy'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={inviteBusy}
+                      onClick={() => void handleDisableInvite()}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                      title="Disable private invite"
+                    >
+                      Public
+                    </button>
+                  </div>
+                  <p className="max-w-[15rem] text-right text-[10px] leading-snug text-white/45">
+                    Share with fans; stay in this studio to keep video on.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={inviteBusy}
+                  onClick={() => void handleEnableInvite()}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                  title="Make invite-only and copy link"
+                >
+                  <Link2 className="size-4" />
+                  {inviteBusy ? '…' : 'Private invite'}
+                </button>
+              )
+            ) : null}
+            {isHost && !isPaused ? (
+              <LiveBeautyControls
+                open={beautyOpen}
+                onOpenChange={setBeautyOpen}
+                state={beautyUi}
+                onChange={(next) => {
+                  if (next.enabled) setBeautyOverloaded(false)
+                  setBeautyUi(next)
+                }}
+                overloaded={beautyOverloaded}
+              />
+            ) : null}
+            {isHost && !isPaused ? (
+              <button
+                type="button"
+                disabled={flipBusy}
+                onClick={() => void handleFlipCamera()}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
+                title="Flip camera"
+              >
+                <SwitchCamera className="size-4" />
+                {flipBusy ? 'Flipping…' : 'Flip'}
               </button>
             ) : null}
             {isHost && liveId && !isPractice ? (
@@ -702,12 +1671,9 @@ export function LiveRoom({
             ) : null}
             <button
               type="button"
-              onClick={async () => {
-                await cleanup()
-                if (isHost && onEnd) onEnd()
-                else onLeave()
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20"
+              disabled={raidEnding}
+              onClick={() => void handleEndClick()}
+              className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white transition hover:bg-white/20 disabled:opacity-50"
             >
               <X className="size-4" />
               {isHost ? (isPractice ? 'End practice' : 'End live') : 'Leave'}
@@ -730,6 +1696,31 @@ export function LiveRoom({
 
       <div className="relative flex-1">
         <div ref={videoRef} className="absolute inset-0 bg-[#0b0b0f]" />
+
+        {!isHost && liveId && viewerUserId ? (
+          <LiveForensicWatermark
+            userId={viewerUserId}
+            liveId={liveId}
+            active={
+              status === 'live' &&
+              !isPaused &&
+              !audioOnlyMode &&
+              !raidRedirect
+            }
+          />
+        ) : null}
+
+        {!isHost && liveId && viewerUsername ? (
+          <LiveVisibleWatermark
+            username={viewerUsername}
+            active={
+              status === 'live' &&
+              !isPaused &&
+              !audioOnlyMode &&
+              !raidRedirect
+            }
+          />
+        ) : null}
 
         {isPaused ? (
           <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center overflow-hidden bg-[#0b0b0f]">
@@ -766,7 +1757,41 @@ export function LiveRoom({
           </div>
         ) : null}
 
-        {showStatusOverlay ? (
+        {audioOnlyMode && !isPaused && status !== 'ended' && status !== 'connecting' ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-[#0b0b0f] px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-sky-500/90">
+              <Headphones className="size-7 text-black" />
+            </span>
+            <p className="text-base font-semibold text-white">
+              Listening in background
+            </p>
+            <p className="max-w-xs text-[13px] text-white/45">
+              Video paused to save data — audio keeps playing. Return to this
+              tab for video.
+            </p>
+          </div>
+        ) : null}
+
+        {waitingForHostVideo &&
+        !isHost &&
+        !isPaused &&
+        !audioOnlyMode &&
+        status === 'live' ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-white/10">
+              <Loader2 className="size-7 animate-spin text-white/80" />
+            </span>
+            <p className="text-base font-semibold text-white">
+              Waiting for host video…
+            </p>
+            <p className="max-w-xs text-[13px] text-white/45">
+              You&apos;re in the room — chat still works. Video appears when the
+              host is on camera.
+            </p>
+          </div>
+        ) : null}
+
+        {showStatusOverlay && !raidRedirect ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 px-6 text-center">
             <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-500 to-orange-500">
               <Radio className="size-7 text-white" />
@@ -777,6 +1802,33 @@ export function LiveRoom({
                 Taking you back home…
               </p>
             ) : null}
+          </div>
+        ) : null}
+
+        {raidRedirect ? (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center">
+            <span className="flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500">
+              <Radio className="size-7 text-white" />
+            </span>
+            <p className="text-lg font-bold text-white">
+              Raiding @{raidRedirect.creatorName}
+            </p>
+            <p className="max-w-xs text-[13px] text-white/55">
+              {raidRedirect.title} — joining in {raidRedirect.seconds}s
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                const targetId = raidRedirect.targetLiveId
+                void cleanup().then(() => {
+                  if (onRaidNavigate) onRaidNavigate(targetId)
+                  else window.location.href = `/live/${targetId}`
+                })
+              }}
+              className="mt-2 inline-flex h-11 items-center justify-center rounded-full bg-white px-5 text-[13px] font-semibold text-black"
+            >
+              Join now
+            </button>
           </div>
         ) : null}
 
@@ -796,13 +1848,108 @@ export function LiveRoom({
         ) : null}
 
         {liveId && status !== 'ended' && !isPractice ? (
-          <LiveChatOverlay
-            liveId={liveId}
-            emojiPrice={emojiPrice}
-            isHost={isHost}
-          />
+          <>
+            <FloatingReactions liveId={liveId} />
+            <LivePollOverlay
+              liveId={liveId}
+              isHost={isHost}
+              hostToolbarEl={isHost ? pollToolbarEl : null}
+            />
+            <LiveMilestoneOverlay
+              liveId={liveId}
+              isHost={isHost}
+              hostToolbarEl={isHost ? goalToolbarEl : null}
+            />
+            <LiveTopGiftersOverlay liveId={liveId} />
+            <LiveChatOverlay
+              liveId={liveId}
+              emojiPrice={emojiPrice}
+              isHost={isHost}
+            />
+          </>
         ) : null}
       </div>
+
+      {raidPickerOpen ? (
+        <div className="absolute inset-0 z-[120] flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#141416] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.14em] text-fuchsia-300/80 uppercase">
+                  Raid
+                </p>
+                <h2 className="mt-1 text-lg font-bold text-white">
+                  Send viewers to another live?
+                </h2>
+                <p className="mt-1 text-[13px] text-white/45">
+                  Pick a public live on air, or end without raiding.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={raidEnding}
+                onClick={() => setRaidPickerOpen(false)}
+                className="rounded-full bg-white/10 p-2 text-white/70 hover:bg-white/15"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
+              {raidTargetsLoading ? (
+                <div className="flex items-center justify-center py-8 text-white/50">
+                  <Loader2 className="size-5 animate-spin" />
+                </div>
+              ) : raidTargets.length === 0 ? (
+                <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-4 text-center text-[13px] text-white/45">
+                  No other public lives on air right now.
+                </p>
+              ) : (
+                raidTargets.map((target) => (
+                  <button
+                    key={target.id}
+                    type="button"
+                    disabled={raidEnding}
+                    onClick={() => void confirmEnd(target.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.08] disabled:opacity-50"
+                  >
+                    <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-[12px] font-bold text-white">
+                      {target.creator?.avatarUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={target.creator.avatarUrl}
+                          alt=""
+                          className="size-full object-cover"
+                        />
+                      ) : (
+                        (target.creator?.name ?? '?').slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-semibold text-white">
+                        {target.creator?.name ?? 'Creator'}
+                      </span>
+                      <span className="block truncate text-[12px] text-white/45">
+                        {target.title}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[11px] font-semibold text-fuchsia-300">
+                      Raid
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={raidEnding}
+              onClick={() => void confirmEnd()}
+              className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-full bg-white text-[14px] font-semibold text-black disabled:opacity-50"
+            >
+              {raidEnding ? 'Ending…' : 'End without raid'}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

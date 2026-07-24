@@ -3,7 +3,7 @@
 import { useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-import { CreatorRegisterCard } from '@/components/auth/CreatorRegisterCard'
+import { CreatorRegisterWizard } from '@/components/auth/CreatorRegisterWizard'
 import { UserRegisterCard } from '@/components/auth/UserRegisterCard'
 import { SignupBackdrop } from '@/components/auth/SignupBackdrop'
 
@@ -28,7 +28,7 @@ export function RegisterExperience() {
       <SignupBackdrop />
       <div className="relative z-20 flex w-full max-w-[540px] flex-col items-center">
         {role === 'creator' ? (
-          <CreatorRegisterCard
+          <CreatorRegisterWizard
             initialUsername={initialUsername}
             onSwitchRole={() => switchRole('user')}
           />

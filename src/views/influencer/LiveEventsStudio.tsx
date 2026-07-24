@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Clapperboard, Play, Radio, Square } from 'lucide-react'
 
@@ -10,14 +11,21 @@ import { StudioPageHeader } from '@/components/creator-studio/StudioPageHeader'
 import { api, ApiError } from '@/lib/api'
 import {
   enterPracticeMine,
+  endLiveMine,
   goPublicLive,
   startPracticeMine,
   type AgoraCreds,
   type LiveDto,
+  type StreamQualityPolicy,
 } from '@/lib/live'
 import { formatCurrency } from '@/lib/utils'
 
-type LiveResponse = { live: LiveDto; agora?: AgoraCreds; notified?: number }
+type LiveResponse = {
+  live: LiveDto
+  agora?: AgoraCreds
+  streamQuality?: StreamQualityPolicy
+  notified?: number
+}
 
 function unwrapLives(response: LiveDto[] | { items?: LiveDto[]; lives?: LiveDto[] }) {
   if (Array.isArray(response)) return response
@@ -28,13 +36,18 @@ export function LiveEventsStudio() {
   const queryClient = useQueryClient()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [accessType, setAccessType] = useState<'FREE' | 'PAID'>('FREE')
+  const [accessType, setAccessType] = useState<'FREE' | 'PAID' | 'PER_MINUTE'>(
+    'FREE'
+  )
   const [price, setPrice] = useState('99')
+  const [pricePerMinute, setPricePerMinute] = useState('100')
   const [emojiPrice, setEmojiPrice] = useState('10')
   const [scheduledAt, setScheduledAt] = useState('')
-  const [room, setRoom] = useState<{ live: LiveDto; agora: AgoraCreds } | null>(
-    null
-  )
+  const [room, setRoom] = useState<{
+    live: LiveDto
+    agora: AgoraCreds
+    streamQuality?: StreamQualityPolicy
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const livesQuery = useQuery({
@@ -53,6 +66,9 @@ export function LiveEventsStudio() {
     description: description.trim() || null,
     accessType,
     ...(accessType === 'PAID' ? { price: Number(price) } : {}),
+    ...(accessType === 'PER_MINUTE'
+      ? { pricePerMinute: Number(pricePerMinute) || 100 }
+      : {}),
     emojiPrice: Number(emojiPrice),
   }
 
@@ -65,7 +81,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -75,7 +96,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -105,7 +131,12 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
@@ -115,14 +146,24 @@ export function LiveEventsStudio() {
     onSuccess: (result) => {
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
-      if (result.agora) setRoom({ live: result.live, agora: result.agora })
+      if (result.agora)
+        setRoom({
+          live: result.live,
+          agora: result.agora,
+          streamQuality: result.streamQuality,
+        })
     },
     onError: handleError,
   })
 
   const endLive = useMutation({
-    mutationFn: (id: string) =>
-      api<LiveResponse>(`/creators/me/live/${id}/end`, { method: 'POST' }),
+    mutationFn: ({
+      id,
+      raidTargetLiveId,
+    }: {
+      id: string
+      raidTargetLiveId?: string
+    }) => endLiveMine(id, { raidTargetLiveId }),
     onSuccess: () => {
       setRoom(null)
       setError(null)
@@ -154,7 +195,7 @@ export function LiveEventsStudio() {
   if (room) {
     const practicing =
       Boolean(room.live.isPractice) || room.live.status === 'PRACTICE'
-    return (
+    const liveRoom = (
       <LiveRoom
         creds={room.agora}
         title={room.live.title}
@@ -173,9 +214,17 @@ export function LiveEventsStudio() {
         initialLatencyMode={
           room.live.latencyMode === 'NORMAL' ? 'NORMAL' : 'ULTRA_LOW'
         }
+        streamQuality={room.streamQuality}
         isPractice={practicing}
+        initialInviteEnabled={Boolean(room.live.inviteEnabled)}
+        initialInvitePrice={room.live.invitePrice ?? null}
         onLeave={() => setRoom(null)}
-        onEnd={() => endLive.mutate(room.live.id)}
+        onEnd={(opts) =>
+          endLive.mutate({
+            id: room.live.id,
+            raidTargetLiveId: opts?.raidTargetLiveId,
+          })
+        }
         onGoPublic={
           practicing
             ? async () => {
@@ -186,6 +235,13 @@ export function LiveEventsStudio() {
         }
       />
     )
+
+    // Escape CreatorStudioShell (max-width + framer transform) so fixed UI
+    // and the health pill are not clipped or offset.
+    if (typeof document !== 'undefined') {
+      return createPortal(liveRoom, document.body)
+    }
+    return liveRoom
   }
 
   const lives = livesQuery.data ?? []
@@ -194,7 +250,9 @@ export function LiveEventsStudio() {
   const valid =
     title.trim() &&
     Number(emojiPrice) > 0 &&
-    (accessType === 'FREE' || Number(price) > 0)
+    (accessType === 'FREE' ||
+      (accessType === 'PAID' && Number(price) > 0) ||
+      (accessType === 'PER_MINUTE' && Number(pricePerMinute) > 0))
 
   return (
     <div>
@@ -238,7 +296,7 @@ export function LiveEventsStudio() {
             />
           </label>
           <div className="flex gap-2">
-            {(['FREE', 'PAID'] as const).map((type) => (
+            {(['FREE', 'PAID', 'PER_MINUTE'] as const).map((type) => (
               <button
                 key={type}
                 type="button"
@@ -249,21 +307,37 @@ export function LiveEventsStudio() {
                     : 'border-white/10 text-white/45'
                 }`}
               >
-                {type === 'FREE' ? 'Free' : 'Paid'}
+                {type === 'FREE'
+                  ? 'Free'
+                  : type === 'PAID'
+                    ? 'Paid'
+                    : 'Per minute'}
               </button>
             ))}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-2">
               <span className="text-xs font-semibold text-white/50">
-                Entry price
+                {accessType === 'PER_MINUTE' ? '₹ per minute' : 'Entry price'}
               </span>
               <input
                 type="number"
                 min="1"
                 disabled={accessType === 'FREE'}
-                value={accessType === 'FREE' ? '0' : price}
-                onChange={(event) => setPrice(event.target.value)}
+                value={
+                  accessType === 'FREE'
+                    ? '0'
+                    : accessType === 'PER_MINUTE'
+                      ? pricePerMinute
+                      : price
+                }
+                onChange={(event) => {
+                  if (accessType === 'PER_MINUTE') {
+                    setPricePerMinute(event.target.value)
+                  } else {
+                    setPrice(event.target.value)
+                  }
+                }}
                 className="h-11 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 text-sm text-white disabled:opacity-40"
               />
             </label>
@@ -340,7 +414,9 @@ export function LiveEventsStudio() {
                   {' · '}
                   {live.accessType === 'PAID'
                     ? formatCurrency(Number(live.price ?? 0))
-                    : 'Free'}
+                    : live.accessType === 'PER_MINUTE'
+                      ? `${formatCurrency(Number(live.pricePerMinute ?? 100))}/min`
+                      : 'Free'}
                   {' · '}Emoji {formatCurrency(Number(live.emojiPrice ?? 0))}
                 </p>
               </div>
@@ -372,7 +448,7 @@ export function LiveEventsStudio() {
                 live.isPractice ? (
                 <button
                   type="button"
-                  onClick={() => endLive.mutate(live.id)}
+                  onClick={() => endLive.mutate({ id: live.id })}
                   disabled={endLive.isPending}
                   className="inline-flex h-10 items-center gap-2 rounded-full border border-rose-400/30 bg-rose-500/10 px-4 text-xs font-semibold text-rose-200"
                 >
