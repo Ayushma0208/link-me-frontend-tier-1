@@ -2,16 +2,49 @@
 
 import Link from 'next/link'
 import { motion, useReducedMotion } from 'framer-motion'
-import { Clock3, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, Clock3, Loader2, ShieldAlert, ShieldCheck } from 'lucide-react'
 
+import type { KycStatusResponse } from '@/lib/kyc/api'
 import { cn } from '@/lib/utils'
 
 interface KycSubmissionPendingProps {
+  status: KycStatusResponse | null
   className?: string
 }
 
-export function KycSubmissionPending({ className }: KycSubmissionPendingProps) {
+export function KycSubmissionPending({ status, className }: KycSubmissionPendingProps) {
   const prefersReducedMotion = useReducedMotion()
+  const current = status?.status ?? 'PROCESSING'
+
+  const isProcessing = current === 'PROCESSING' || current === 'NOT_SUBMITTED'
+  const isApproved = current === 'APPROVED'
+  const isRejected = current === 'REJECTED'
+  const isReview = current === 'REVIEW_REQUIRED'
+
+  const title = isApproved
+    ? 'Verification approved'
+    : isRejected
+      ? 'Verification rejected'
+      : isReview
+        ? 'Under manual review'
+        : 'Verification submitted'
+
+  const description = isApproved
+    ? 'Your creator account is verified. You can start using the creator dashboard.'
+    : isRejected
+      ? status?.rejectionReason ??
+        'We could not verify your identity. Please check your documents and try again.'
+      : isReview
+        ? 'Your selfie matched your Aadhaar photo, but your application needs a quick manual review before approval.'
+        : 'Your documents and selfie are being verified. This usually takes a minute.'
+
+  const Icon = isApproved
+    ? CheckCircle2
+    : isRejected
+      ? ShieldAlert
+      : isProcessing
+        ? Loader2
+        : ShieldCheck
 
   return (
     <div className={cn('text-center', className)}>
@@ -19,36 +52,42 @@ export function KycSubmissionPending({ className }: KycSubmissionPendingProps) {
         initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 text-fuchsia-200 ring-1 ring-fuchsia-300/30"
+        className={cn(
+          'mx-auto flex h-16 w-16 items-center justify-center rounded-full ring-1',
+          isApproved && 'bg-emerald-500/15 text-emerald-200 ring-emerald-300/30',
+          isRejected && 'bg-red-500/15 text-red-200 ring-red-300/30',
+          isReview && 'bg-amber-500/15 text-amber-200 ring-amber-300/30',
+          isProcessing &&
+            'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 text-fuchsia-200 ring-fuchsia-300/30'
+        )}
       >
-        <ShieldCheck className="h-8 w-8" aria-hidden />
+        <Icon
+          className={cn('h-8 w-8', isProcessing && 'animate-spin')}
+          aria-hidden
+        />
       </motion.div>
 
       <h2 className="mt-5 text-[1.55rem] font-extrabold tracking-[-0.04em] text-white sm:text-[1.7rem]">
-        Verification submitted
+        {title}
       </h2>
       <p className="mx-auto mt-3 max-w-[38ch] text-[14px] leading-relaxed text-white/55">
-        Your account details, documents, and selfie have been collected. KYC review is pending
-        while backend verification is being connected.
+        {description}
       </p>
 
-      <div className="mx-auto mt-6 max-w-md rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-left">
-        <div className="flex items-start gap-3">
-          <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-200" aria-hidden />
-          <div>
-            <p className="text-[13px] font-medium text-white/85">What happens next</p>
-            <p className="mt-1 text-[12px] leading-relaxed text-white/45">
-              Once backend integration is live, your documents and selfie will be verified and
-              you&apos;ll be notified when your creator account is approved.
-            </p>
+      {!isApproved && !isRejected ? (
+        <div className="mx-auto mt-6 max-w-md rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-3 text-left">
+          <div className="flex items-start gap-3">
+            <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-200" aria-hidden />
+            <div>
+              <p className="text-[13px] font-medium text-white/85">What happens next</p>
+              <p className="mt-1 text-[12px] leading-relaxed text-white/45">
+                {isReview
+                  ? 'Our team will review your documents shortly and notify you once your creator account is approved.'
+                  : 'We are matching your selfie against your Aadhaar photo. Stay on this page for live status updates.'}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
-
-      {process.env.NODE_ENV !== 'production' ? (
-        <p className="mt-4 text-[11px] text-white/30">
-          Dev note: draft summary logged to the browser console.
-        </p>
       ) : null}
 
       <motion.div
@@ -57,7 +96,7 @@ export function KycSubmissionPending({ className }: KycSubmissionPendingProps) {
         whileTap={prefersReducedMotion ? undefined : { scale: 0.985 }}
       >
         <Link
-          href="/"
+          href={isApproved ? '/influencer' : '/'}
           className={cn(
             'inline-flex h-12 min-w-[220px] items-center justify-center rounded-full px-6',
             'bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500',
@@ -65,7 +104,7 @@ export function KycSubmissionPending({ className }: KycSubmissionPendingProps) {
             'shadow-[0_12px_40px_rgba(217,70,239,0.4)]'
           )}
         >
-          Go to home
+          {isApproved ? 'Go to creator dashboard' : 'Go to home'}
         </Link>
       </motion.div>
     </div>

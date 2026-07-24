@@ -27,6 +27,7 @@ export function CreatorRegisterWizard({
     submitted,
     submitting,
     error,
+    kycStatus,
     setError,
     setProfile,
     setGoogleToken,
@@ -40,7 +41,7 @@ export function CreatorRegisterWizard({
   return (
     <RegisterGlassCard accent="creator" className={className}>
       {submitted ? (
-        <KycSubmissionPending />
+        <KycSubmissionPending status={kycStatus} />
       ) : (
         <>
           <KycStepIndicator currentStep={draft.step} className="mb-8" />

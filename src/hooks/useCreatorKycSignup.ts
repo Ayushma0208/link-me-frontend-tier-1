@@ -1,7 +1,10 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { ApiError } from '@/lib/api'
+import { kycStatus, type KycStatus, type KycStatusResponse } from '@/lib/kyc/api'
+import { submitCreatorKyc } from '@/lib/kyc/submit-kyc'
 import {
   INITIAL_KYC_DRAFT,
   KYC_DOCUMENT_MAX_BYTES,
@@ -39,11 +42,48 @@ function validateDocuments(draft: CreatorKycDraft): string | null {
   return null
 }
 
+const TERMINAL_STATUSES = new Set<KycStatus>([
+  'APPROVED',
+  'REJECTED',
+  'REVIEW_REQUIRED',
+])
+
 export function useCreatorKycSignup() {
   const [draft, setDraft] = useState<CreatorKycDraft>(INITIAL_KYC_DRAFT)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [kycStatusState, setKycStatusState] = useState<KycStatusResponse | null>(
+    null
+  )
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }, [])
+
+  const pollKycStatus = useCallback(async () => {
+    const status = await kycStatus()
+    setKycStatusState(status)
+    if (TERMINAL_STATUSES.has(status.status)) {
+      stopPolling()
+    }
+    return status
+  }, [stopPolling])
+
+  useEffect(() => {
+    if (!submitted) return
+
+    void pollKycStatus()
+    pollRef.current = setInterval(() => {
+      void pollKycStatus().catch(() => undefined)
+    }, 4000)
+
+    return stopPolling
+  }, [submitted, pollKycStatus, stopPolling])
 
   const goToStep = useCallback((step: KycSignupStep) => {
     setDraft((prev) => ({ ...prev, step }))
@@ -141,31 +181,18 @@ export function useCreatorKycSignup() {
     setError('')
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 900))
-
-      if (process.env.NODE_ENV !== 'production') {
-        console.debug('[KYC stub submit]', {
-          authMethod: draft.authMethod,
-          profile: draft.profile
-            ? {
-                name: draft.profile.name,
-                username: draft.profile.username,
-                email: draft.profile.email,
-              }
-            : null,
-          googleIdTokenPresent: Boolean(draft.googleIdToken),
-          documents: {
-            aadhaar: draft.documents.aadhaar?.name,
-            pan: draft.documents.pan?.name,
-          },
-          selfieBytes: draft.selfie.size,
-        })
-      }
-
+      const result = await submitCreatorKyc(draft)
+      setKycStatusState({ status: result.status })
       setSubmitted(true)
       return true
-    } catch {
-      setError('Verification submission failed. Please try again.')
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Verification submission failed. Please try again.'
+      setError(message)
       return false
     } finally {
       setSubmitting(false)
@@ -177,6 +204,7 @@ export function useCreatorKycSignup() {
     submitted,
     submitting,
     error,
+    kycStatus: kycStatusState,
     setError,
     goToStep,
     setProfile,
