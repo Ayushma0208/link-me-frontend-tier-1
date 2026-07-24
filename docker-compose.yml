@@ -14,6 +14,8 @@ services:
         NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER: ${NEXT_PUBLIC_ADMIN_WHATSAPP_NUMBER:-}
     ports:
       - "${HOST_PORT:-3021}:3000"
+      - "127.0.0.1:3021:${HOST_PORT:-3000}"
+
     env_file:
       - .env
     restart: unless-stopped
