@@ -1,3 +1,5 @@
+import { browserTimezone } from '@/lib/timezone'
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? '/api'
 
 export class ApiError extends Error {
@@ -38,7 +40,10 @@ async function refreshAccessToken(): Promise<string | null> {
     const res = await fetch(`${API_BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      body: JSON.stringify({
+        refreshToken: tokens.refreshToken,
+        timezone: browserTimezone(),
+      }),
     })
 
     if (!res.ok) {

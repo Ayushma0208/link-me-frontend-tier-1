@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   Coffee,
@@ -14,14 +15,18 @@ import {
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 
+import { OptimalTimeHeatmap } from '@/components/creator-studio/OptimalTimeHeatmap'
 import { StatCard } from '@/components/creator-studio/StatCard'
 import { StudioGlassCard } from '@/components/creator-studio/StudioGlassCard'
 import { StudioLineChart } from '@/components/creator-studio/StudioLineChart'
 import { StudioPageHeader } from '@/components/creator-studio/StudioPageHeader'
 import {
+  downsampleSeries,
   emptyWeekSeries,
   fetchCreatorDashboard,
+  fetchLiveHeatmap,
   fetchMyPosts,
+  fetchOptimalTimes,
   mapApiPostToStudio,
   parseCount,
   parseMoney,
@@ -66,6 +71,7 @@ type AnalyticsPayload = {
 export function AnalyticsStudio() {
   const prefersReducedMotion = useReducedMotion()
   const [period, setPeriod] = useState<AnalyticsPeriod>('weekly')
+  const [selectedLiveId, setSelectedLiveId] = useState<string | undefined>()
 
   const dashboardQuery = useQuery({
     queryKey: ['creator-dashboard'],
@@ -83,6 +89,16 @@ export function AnalyticsStudio() {
       const posts = await fetchMyPosts({ limit: 50, status: 'PUBLISHED' })
       return (Array.isArray(posts) ? posts : []).map(mapApiPostToStudio)
     },
+  })
+
+  const heatmapQuery = useQuery({
+    queryKey: ['creator-live-heatmap', selectedLiveId ?? 'auto'],
+    queryFn: () => fetchLiveHeatmap(selectedLiveId),
+  })
+
+  const optimalQuery = useQuery({
+    queryKey: ['creator-optimal-times'],
+    queryFn: fetchOptimalTimes,
   })
 
   const profile = dashboardQuery.data?.profile
@@ -166,6 +182,45 @@ export function AnalyticsStudio() {
     },
   ]
 
+  const heatmap = heatmapQuery.data
+  const activeLiveId =
+    selectedLiveId ?? heatmap?.selectedLiveId ?? undefined
+  const seriesPointsRaw = heatmap?.series
+  const sampledPoints = useMemo(() => {
+    if (!seriesPointsRaw) return null
+    const rows = seriesPointsRaw.labels.map((label, i) => ({
+      label,
+      viewers: seriesPointsRaw.viewers[i] ?? 0,
+      giftRevenue: seriesPointsRaw.giftRevenue[i] ?? 0,
+    }))
+    return downsampleSeries(rows, 28)
+  }, [seriesPointsRaw])
+
+  const liveChartSeries = useMemo(() => {
+    if (!sampledPoints?.length) return null
+    const viewers = sampledPoints.map((p) => p.viewers)
+    const gifts = sampledPoints.map((p) => p.giftRevenue)
+    const maxV = Math.max(...viewers, 1)
+    const maxG = Math.max(...gifts, 1)
+    return {
+      labels: sampledPoints.map((p) => p.label),
+      series: [
+        {
+          key: 'viewers',
+          label: 'Viewers',
+          color: '#38bdf8',
+          values: viewers.map((v) => (v / maxV) * 100),
+        },
+        {
+          key: 'gifts',
+          label: 'Gift revenue',
+          color: '#e879f9',
+          values: gifts.map((v) => (v / maxG) * 100),
+        },
+      ],
+    }
+  }, [sampledPoints])
+
   const loading =
     dashboardQuery.isLoading || analyticsQuery.isLoading || postsQuery.isLoading
 
@@ -191,6 +246,71 @@ export function AnalyticsStudio() {
           />
         ))}
       </div>
+
+      <div className="mb-8">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-white">
+              Live viewer × gift correlation
+            </h2>
+            <p className="text-[13px] text-white/45">
+              Peaks and gift revenue from your recent ended streams.
+            </p>
+          </div>
+          {(heatmap?.sessions.length ?? 0) > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={activeLiveId ?? ''}
+                onChange={(e) =>
+                  setSelectedLiveId(e.target.value || undefined)
+                }
+                className="h-10 rounded-full border border-white/10 bg-white/[0.04] px-4 text-[13px] text-white"
+              >
+                {heatmap!.sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title}
+                  </option>
+                ))}
+              </select>
+              {activeLiveId ? (
+                <Link
+                  href={`/influencer/live/${activeLiveId}/insights`}
+                  className="inline-flex h-10 items-center rounded-full border border-white/12 bg-white/[0.05] px-4 text-[12px] font-semibold text-white/80 hover:text-white"
+                >
+                  Full insights
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {heatmapQuery.isLoading ? (
+          <p className="mb-4 text-sm text-white/45">Loading live heatmap…</p>
+        ) : null}
+
+        {liveChartSeries ? (
+          <StudioLineChart
+            title="Viewers & gift revenue"
+            subtitle="Normalized to each series peak"
+            labels={liveChartSeries.labels}
+            series={liveChartSeries.series}
+            formatValue={(v) => `${Math.round(v)}% of peak`}
+            className="mb-4"
+          />
+        ) : (
+          <StudioGlassCard className="mb-4 p-6 text-sm text-white/45">
+            End a live with viewers and gifts to see correlation charts here.
+          </StudioGlassCard>
+        )}
+      </div>
+
+      <OptimalTimeHeatmap
+        className="mb-8"
+        grid={optimalQuery.data?.grid ?? Array.from({ length: 7 }, () => Array(24).fill(0))}
+        recommendation={optimalQuery.data?.recommendation ?? null}
+        sampleSize={optimalQuery.data?.sampleSize ?? 0}
+        timezone={optimalQuery.data?.timezone ?? 'UTC'}
+      />
 
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>

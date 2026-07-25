@@ -2,8 +2,17 @@
 
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarClock, Clapperboard, Play, Radio, Square } from 'lucide-react'
+import {
+  CalendarClock,
+  ChartLine,
+  Clapperboard,
+  Play,
+  Radio,
+  Square,
+} from 'lucide-react'
 
 import { LiveRoom } from '@/components/live/LiveRoom'
 import { StudioGlassCard } from '@/components/creator-studio/StudioGlassCard'
@@ -33,6 +42,7 @@ function unwrapLives(response: LiveDto[] | { items?: LiveDto[]; lives?: LiveDto[
 }
 
 export function LiveEventsStudio() {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -163,11 +173,15 @@ export function LiveEventsStudio() {
     }: {
       id: string
       raidTargetLiveId?: string
+      goToInsights?: boolean
     }) => endLiveMine(id, { raidTargetLiveId }),
-    onSuccess: () => {
+    onSuccess: (_result, vars) => {
       setRoom(null)
       setError(null)
       void queryClient.invalidateQueries({ queryKey: ['creator-lives'] })
+      if (vars.goToInsights) {
+        router.push(`/influencer/live/${vars.id}/insights`)
+      }
     },
     onError: handleError,
   })
@@ -223,6 +237,7 @@ export function LiveEventsStudio() {
           endLive.mutate({
             id: room.live.id,
             raidTargetLiveId: opts?.raidTargetLiveId,
+            goToInsights: !practicing,
           })
         }
         onGoPublic={
@@ -448,7 +463,14 @@ export function LiveEventsStudio() {
                 live.isPractice ? (
                 <button
                   type="button"
-                  onClick={() => endLive.mutate({ id: live.id })}
+                  onClick={() =>
+                    endLive.mutate({
+                      id: live.id,
+                      goToInsights: !(
+                        live.isPractice || live.status === 'PRACTICE'
+                      ),
+                    })
+                  }
                   disabled={endLive.isPending}
                   className="inline-flex h-10 items-center gap-2 rounded-full border border-rose-400/30 bg-rose-500/10 px-4 text-xs font-semibold text-rose-200"
                 >
@@ -457,6 +479,13 @@ export function LiveEventsStudio() {
                     ? 'End practice'
                     : 'End'}
                 </button>
+              ) : live.status === 'ENDED' ? (
+                <Link
+                  href={`/influencer/live/${live.id}/insights`}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 text-xs font-semibold text-white/80 hover:text-white"
+                >
+                  <ChartLine className="size-3.5" /> View insights
+                </Link>
               ) : null}
             </div>
           </StudioGlassCard>

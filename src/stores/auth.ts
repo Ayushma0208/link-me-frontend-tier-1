@@ -9,6 +9,7 @@ import {
   type BackendPublicUser,
 } from '@/lib/auth-map'
 import { requestGoogleIdToken } from '@/lib/google-auth'
+import { browserTimezone } from '@/lib/timezone'
 
 interface AuthState {
   user: AuthUser | null
@@ -39,7 +40,11 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (email, password) => {
     const data = await api<BackendAuthResult>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        timezone: browserTimezone(),
+      }),
     })
     const user = await applyAuthResult(data)
     set({ user })
@@ -54,6 +59,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       body: JSON.stringify({
         idToken,
         role: toBackendRole(role),
+        timezone: browserTimezone(),
       }),
     })
     const user = await applyAuthResult(data)
@@ -69,6 +75,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         displayName: input.name,
         username: input.username,
         role: toBackendRole(input.role),
+        timezone: browserTimezone(),
       }),
     })
     const user = await applyAuthResult(data)

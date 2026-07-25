@@ -243,3 +243,94 @@ export function parseCount(value: string | null | undefined): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
 }
+
+export interface LiveHeatmapSession {
+  id: string
+  title: string
+  startedAt: string | null
+  endedAt: string | null
+  currency: string
+  peakViewers: number
+  totalGiftRevenue: number
+  giftCount: number
+  hasViewerSamples: boolean
+}
+
+export interface LiveHeatmapResponse {
+  sessions: LiveHeatmapSession[]
+  selectedLiveId: string | null
+  series: {
+    labels: string[]
+    viewers: (number | null)[]
+    giftRevenue: number[]
+  } | null
+}
+
+export interface OptimalTimesResponse {
+  recommendation: string | null
+  window: {
+    dayOfWeek: number
+    startHour: number
+    endHour: number
+    timezone: string
+  } | null
+  grid: number[][]
+  sampleSize: number
+  timezone: string
+}
+
+export interface LiveInsightsResponse {
+  live: {
+    id: string
+    title: string
+    status: string
+    startedAt: string | null
+    endedAt: string | null
+    currency: string
+  }
+  summary: {
+    durationSeconds: number
+    peakViewers: number
+    totalGiftRevenue: number
+    totalGiftCount: number
+    subsDuringStream: number
+    hasViewerSamples: boolean
+  }
+  buckets: Array<{
+    minuteAt: string
+    viewers: number | null
+    giftRevenue: number
+    giftCount: number
+    newSubs: number
+  }>
+  markers: Array<{
+    type: 'viewer_drop' | 'sub_spike'
+    minuteAt: string
+    label: string
+  }>
+  streamStartAt: string
+}
+
+export function fetchLiveHeatmap(liveId?: string) {
+  const q = liveId ? `?liveId=${encodeURIComponent(liveId)}` : ''
+  return api<LiveHeatmapResponse>(`/creators/me/analytics/live-heatmap${q}`)
+}
+
+export function fetchOptimalTimes() {
+  return api<OptimalTimesResponse>('/creators/me/analytics/optimal-times')
+}
+
+export function fetchLiveInsights(liveId: string) {
+  return api<LiveInsightsResponse>(`/creators/me/live/${liveId}/insights`)
+}
+
+/** Downsample series for StudioLineChart label density. */
+export function downsampleSeries<T>(items: T[], maxPoints = 24): T[] {
+  if (items.length <= maxPoints) return items
+  const step = Math.ceil(items.length / maxPoints)
+  const out: T[] = []
+  for (let i = 0; i < items.length; i += step) out.push(items[i]!)
+  const last = items[items.length - 1]!
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
+}
