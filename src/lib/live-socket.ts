@@ -13,12 +13,20 @@ export interface LiveChatMessage {
   liveId: string
   kind: 'TEXT' | 'EMOJI' | 'GIFT'
   body: string
+  bodyTranslated?: string
+  translatedTo?: string
   amountCharged: number
   createdAt: string
   giftId?: string
   giftLabel?: string
   giftEmoji?: string
   user: LiveChatUser
+}
+
+export interface LiveMessageI18nPayload {
+  id: string
+  bodyTranslated: string
+  translatedTo: string
 }
 
 export interface LivePinnedPayload {

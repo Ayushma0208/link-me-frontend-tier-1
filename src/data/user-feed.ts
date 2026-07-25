@@ -63,6 +63,7 @@ export interface FeedPost {
   price: number | null
   likes: number
   comments: number
+  likedByMe?: boolean
   hashtags?: string[]
   source: FeedSource
   createdAt: string

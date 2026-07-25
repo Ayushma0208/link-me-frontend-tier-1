@@ -9,6 +9,8 @@ import {
   type BackendPublicUser,
 } from '@/lib/auth-map'
 import { requestGoogleIdToken } from '@/lib/google-auth'
+import { resolveLocale } from '@/i18n/config'
+import { getClientLocale, setLocaleCookie } from '@/lib/locale-cookie'
 import { browserTimezone } from '@/lib/timezone'
 
 interface AuthState {
@@ -38,15 +40,18 @@ export const useAuthStore = create<AuthState>((set) => ({
   loading: true,
 
   login: async (email, password) => {
+    const locale = getClientLocale()
     const data = await api<BackendAuthResult>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({
         email,
         password,
         timezone: browserTimezone(),
+        locale,
       }),
     })
     const user = await applyAuthResult(data)
+    setLocaleCookie(resolveLocale(user.locale))
     set({ user })
   },
 
@@ -54,19 +59,23 @@ export const useAuthStore = create<AuthState>((set) => ({
     const idToken = await requestGoogleIdToken(
       role === 'creator' ? 'signup' : 'signin'
     )
+    const locale = getClientLocale()
     const data = await api<BackendAuthResult>('/auth/google', {
       method: 'POST',
       body: JSON.stringify({
         idToken,
         role: toBackendRole(role),
         timezone: browserTimezone(),
+        locale,
       }),
     })
     const user = await applyAuthResult(data)
+    setLocaleCookie(resolveLocale(user.locale))
     set({ user })
   },
 
   register: async (input) => {
+    const locale = getClientLocale()
     const data = await api<BackendAuthResult>('/auth/register', {
       method: 'POST',
       body: JSON.stringify({
@@ -76,9 +85,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         username: input.username,
         role: toBackendRole(input.role),
         timezone: browserTimezone(),
+        locale,
       }),
     })
     const user = await applyAuthResult(data)
+    setLocaleCookie(resolveLocale(user.locale))
     set({ user })
   },
 
@@ -90,7 +101,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   fetchMe: async () => {
     try {
       const data = await api<{ user: BackendPublicUser }>('/auth/me')
-      set({ user: mapBackendUser(data.user), loading: false })
+      const user = mapBackendUser(data.user)
+      setLocaleCookie(resolveLocale(user.locale))
+      set({ user, loading: false })
     } catch {
       setTokens(null)
       set({ user: null, loading: false })

@@ -7,6 +7,7 @@ import { Bell } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { GlobalSearch } from '@/components/dashboard/GlobalSearch'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import { Logo } from '@/components/layout/Logo'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationsStore } from '@/stores/notifications'
@@ -58,6 +59,7 @@ export function TopNavbar({ className }: TopNavbarProps) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <LanguageSwitcher compact className="hidden sm:flex" />
           <Link
             href="/user/notifications"
             className={cn(

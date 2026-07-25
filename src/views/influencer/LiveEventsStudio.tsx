@@ -22,8 +22,10 @@ import {
   enterPracticeMine,
   endLiveMine,
   goPublicLive,
+  listLiveDubsMine,
   startPracticeMine,
   type AgoraCreds,
+  type DubLocale,
   type LiveDto,
   type StreamQualityPolicy,
 } from '@/lib/live'
@@ -53,12 +55,19 @@ export function LiveEventsStudio() {
   const [pricePerMinute, setPricePerMinute] = useState('100')
   const [emojiPrice, setEmojiPrice] = useState('10')
   const [scheduledAt, setScheduledAt] = useState('')
+  const [autoDubEnabled, setAutoDubEnabled] = useState(false)
+  const [autoDubLocales, setAutoDubLocales] = useState<DubLocale[]>([
+    'es',
+    'pt',
+    'ar',
+  ])
   const [room, setRoom] = useState<{
     live: LiveDto
     agora: AgoraCreds
     streamQuality?: StreamQualityPolicy
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [dubStatusLiveId, setDubStatusLiveId] = useState<string | null>(null)
 
   const livesQuery = useQuery({
     queryKey: ['creator-lives'],
@@ -71,6 +80,13 @@ export function LiveEventsStudio() {
     refetchInterval: 10_000,
   })
 
+  const dubsQuery = useQuery({
+    queryKey: ['creator-live-dubs', dubStatusLiveId],
+    queryFn: () => listLiveDubsMine(dubStatusLiveId!),
+    enabled: Boolean(dubStatusLiveId),
+    refetchInterval: 10_000,
+  })
+
   const input = {
     title: title.trim(),
     description: description.trim() || null,
@@ -80,6 +96,18 @@ export function LiveEventsStudio() {
       ? { pricePerMinute: Number(pricePerMinute) || 100 }
       : {}),
     emojiPrice: Number(emojiPrice),
+    autoDubEnabled,
+    ...(autoDubEnabled ? { autoDubLocales } : {}),
+  }
+
+  function toggleDubLocale(locale: DubLocale) {
+    setAutoDubLocales((prev) => {
+      if (prev.includes(locale)) {
+        if (prev.length === 1) return prev
+        return prev.filter((l) => l !== locale)
+      }
+      return [...prev, locale]
+    })
   }
 
   const createLive = useMutation({
@@ -369,6 +397,49 @@ export function LiveEventsStudio() {
               />
             </label>
           </div>
+          <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:col-span-2">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={autoDubEnabled}
+                onChange={(e) => setAutoDubEnabled(e.target.checked)}
+                className="mt-1 size-4 rounded border-white/20 bg-transparent"
+              />
+              <span>
+                <span className="block text-sm font-semibold text-white">
+                  Auto-dub & schedule
+                </span>
+                <span className="mt-0.5 block text-xs text-white/45">
+                  After the live ends, AI dubs the recording and schedules posts
+                  for Spanish, Portuguese, and Arabic viewers.
+                </span>
+              </span>
+            </label>
+            {autoDubEnabled ? (
+              <div className="flex flex-wrap gap-2 pl-7">
+                {(
+                  [
+                    { id: 'es', label: 'Español' },
+                    { id: 'pt', label: 'Português' },
+                    { id: 'ar', label: 'العربية' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => toggleDubLocale(opt.id)}
+                    className={`h-9 rounded-full border px-3 text-xs font-semibold ${
+                      autoDubLocales.includes(opt.id)
+                        ? 'border-fuchsia-400/40 bg-fuchsia-500/15 text-white'
+                        : 'border-white/10 text-white/40'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
         {error ? <p className="mt-4 text-sm text-rose-300">{error}</p> : null}
         <div className="mt-5 flex flex-wrap gap-2">
@@ -433,6 +504,13 @@ export function LiveEventsStudio() {
                       ? `${formatCurrency(Number(live.pricePerMinute ?? 100))}/min`
                       : 'Free'}
                   {' · '}Emoji {formatCurrency(Number(live.emojiPrice ?? 0))}
+                  {live.autoDubEnabled
+                    ? ` · Auto-dub ${
+                        (live.autoDubLocales ?? ['es', 'pt', 'ar'])
+                          .join('/')
+                          .toUpperCase()
+                      }`
+                    : ''}
                 </p>
               </div>
               {live.status === 'SCHEDULED' ? (
@@ -480,14 +558,63 @@ export function LiveEventsStudio() {
                     : 'End'}
                 </button>
               ) : live.status === 'ENDED' ? (
-                <Link
-                  href={`/influencer/live/${live.id}/insights`}
-                  className="inline-flex h-10 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 text-xs font-semibold text-white/80 hover:text-white"
-                >
-                  <ChartLine className="size-3.5" /> View insights
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  {live.autoDubEnabled ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDubStatusLiveId((id) =>
+                          id === live.id ? null : live.id
+                        )
+                      }
+                      className="inline-flex h-10 items-center gap-2 rounded-full border border-sky-400/30 bg-sky-500/10 px-4 text-xs font-semibold text-sky-100"
+                    >
+                      Dub status
+                      {live.recordingStatus && live.recordingStatus !== 'NONE'
+                        ? ` · ${live.recordingStatus}`
+                        : ''}
+                    </button>
+                  ) : null}
+                  <Link
+                    href={`/influencer/live/${live.id}/insights`}
+                    className="inline-flex h-10 items-center gap-2 rounded-full border border-white/12 bg-white/[0.05] px-4 text-xs font-semibold text-white/80 hover:text-white"
+                  >
+                    <ChartLine className="size-3.5" /> View insights
+                  </Link>
+                </div>
               ) : null}
             </div>
+            {dubStatusLiveId === live.id && dubsQuery.data ? (
+              <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
+                <p className="text-xs text-white/45">
+                  Recording: {dubsQuery.data.recordingStatus}
+                  {dubsQuery.data.recordingError
+                    ? ` — ${dubsQuery.data.recordingError}`
+                    : ''}
+                </p>
+                {dubsQuery.data.items.length === 0 ? (
+                  <p className="text-xs text-white/40">
+                    Dub jobs will appear after the recording is ready.
+                  </p>
+                ) : (
+                  dubsQuery.data.items.map((job) => (
+                    <div
+                      key={job.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/[0.03] px-3 py-2 text-xs"
+                    >
+                      <span className="font-semibold text-white/80">
+                        {job.locale.toUpperCase()} · {job.status}
+                      </span>
+                      <span className="text-white/40">
+                        {job.scheduledAt
+                          ? `Schedules ${new Date(job.scheduledAt).toLocaleString()}`
+                          : job.error || '—'}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : null}
           </StudioGlassCard>
         ))}
         {livesQuery.isLoading ? (

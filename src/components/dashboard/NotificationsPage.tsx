@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Bell, CheckCheck } from 'lucide-react'
 
 import { NotificationsTimeline } from '@/components/dashboard/NotificationsTimeline'
+import { PostCommentsSheet } from '@/components/dashboard/PostCommentsSheet'
 import {
   groupNotifications,
   notificationTypeFilters,
@@ -164,15 +166,22 @@ function toAppNotification(item: AppNotificationItem): AppNotification {
 
 export function NotificationsPage() {
   const prefersReducedMotion = useReducedMotion()
+  const searchParams = useSearchParams()
   const storeItems = useNotificationsStore((s) => s.items)
   const refresh = useNotificationsStore((s) => s.refresh)
   const markReadAction = useNotificationsStore((s) => s.markRead)
   const markAllReadAction = useNotificationsStore((s) => s.markAllRead)
   const [filter, setFilter] = useState<NotificationType | 'all'>('all')
+  const [commentsPostId, setCommentsPostId] = useState<string | null>(null)
 
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    const postId = searchParams.get('postId')
+    if (postId) setCommentsPostId(postId)
+  }, [searchParams])
 
   const items = useMemo(
     () => storeItems.map(toAppNotification),
@@ -312,6 +321,14 @@ export function NotificationsPage() {
           <NotificationsTimeline groups={groups} onMarkRead={markRead} />
         </motion.div>
       </AnimatePresence>
+
+      <PostCommentsSheet
+        postId={commentsPostId}
+        open={!!commentsPostId}
+        onOpenChange={(next) => {
+          if (!next) setCommentsPostId(null)
+        }}
+      />
     </div>
   )
 }

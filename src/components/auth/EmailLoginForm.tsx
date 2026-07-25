@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 
@@ -45,6 +46,7 @@ export function EmailLoginForm({
   onSubmit,
   className,
 }: EmailLoginFormProps) {
+  const t = useTranslations('auth')
   const prefersReducedMotion = useReducedMotion()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -69,7 +71,7 @@ export function EmailLoginForm({
       ) : null}
 
       <SharedInput
-        label="Email"
+        label={t('email')}
         accent={accent}
         type="email"
         name="email"
@@ -82,12 +84,12 @@ export function EmailLoginForm({
       />
 
       <SharedInput
-        label="Password"
+        label={t('password')}
         accent={accent}
         type="password"
         name="password"
         autoComplete="current-password"
-        placeholder="Your password"
+        placeholder="••••••••"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         delay={0.14}
@@ -125,10 +127,10 @@ export function EmailLoginForm({
         {loading ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Continuing…
+            {t('signingIn')}
           </>
         ) : (
-          'Continue'
+          t('signIn')
         )}
       </motion.button>
     </form>

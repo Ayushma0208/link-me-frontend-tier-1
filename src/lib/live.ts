@@ -52,7 +52,42 @@ export interface LiveDto {
   startedAt: string | null
   endedAt: string | null
   createdAt: string
+  /** Opt-in auto-dub → locale-targeted scheduled posts. */
+  autoDubEnabled?: boolean
+  autoDubLocales?: Array<'es' | 'pt' | 'ar'>
+  recordingStatus?:
+    | 'NONE'
+    | 'STARTING'
+    | 'RECORDING'
+    | 'STOPPING'
+    | 'READY'
+    | 'FAILED'
+  recordingUrl?: string | null
+  recordingError?: string | null
   creator?: LiveCreator
+}
+
+export type DubLocale = 'es' | 'pt' | 'ar'
+
+export interface LiveDubJobDto {
+  id: string
+  locale: string
+  status: 'QUEUED' | 'PROCESSING' | 'READY' | 'SCHEDULED' | 'FAILED'
+  outputUrl: string | null
+  postId: string | null
+  scheduledAt: string | null
+  error: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LiveDubsResponse {
+  liveId: string
+  autoDubEnabled: boolean
+  recordingStatus: LiveDto['recordingStatus']
+  recordingUrl: string | null
+  recordingError: string | null
+  items: LiveDubJobDto[]
 }
 
 export type LiveLatencyMode = 'ULTRA_LOW' | 'NORMAL'
@@ -405,6 +440,10 @@ export function endLiveMine(
     method: 'POST',
     body: JSON.stringify(opts ?? {}),
   })
+}
+
+export function listLiveDubsMine(liveId: string) {
+  return api<LiveDubsResponse>(`/creators/me/live/${liveId}/dubs`)
 }
 
 export function listRaidTargetsMine() {

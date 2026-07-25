@@ -63,9 +63,13 @@ export function PostActions({
       <p className="text-[13px] font-semibold text-white">
         {likeCount.toLocaleString()} likes
         <span className="mx-2 font-normal text-white/20">·</span>
-        <span className="font-normal text-white/45">
+        <button
+          type="button"
+          onClick={onComment}
+          className="font-normal text-white/45 transition hover:text-white/70"
+        >
           {commentCount.toLocaleString()} comments
-        </span>
+        </button>
       </p>
     </div>
   )

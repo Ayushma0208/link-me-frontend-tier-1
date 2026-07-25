@@ -3,11 +3,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { EmailLoginForm } from '@/components/auth/EmailLoginForm'
 import { GoogleLoginButton } from '@/components/auth/GoogleLoginButton'
 import { RegisterGlassCard } from '@/components/auth/RegisterGlassCard'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import { Logo } from '@/components/layout/Logo'
 import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
@@ -26,53 +28,12 @@ function roleToAccent(role: LoginRole) {
   return 'neutral' as const
 }
 
-const copyByRole = {
-  creator: {
-    badge: '👑 Creator Login',
-    badgeClass:
-      'bg-gradient-to-r from-violet-300 via-fuchsia-300 to-pink-300 bg-clip-text text-transparent',
-    heading: 'Welcome back, Creator',
-    subtitle: 'Manage your audience, subscriptions and earnings.',
-    createHref: (from: string | null) => {
-      const params = new URLSearchParams({ role: 'creator' })
-      if (from) params.set('from', from)
-      return `/register?${params.toString()}`
-    },
-    linkClass: 'text-fuchsia-300 hover:text-pink-200',
-  },
-  user: {
-    badge: '❤️ User Login',
-    badgeClass:
-      'bg-gradient-to-r from-sky-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent',
-    heading: 'Welcome back',
-    subtitle: 'Discover new creators and continue watching.',
-    createHref: (from: string | null) => {
-      const params = new URLSearchParams({ role: 'user' })
-      if (from) params.set('from', from)
-      return `/register?${params.toString()}`
-    },
-    linkClass: 'text-sky-300 hover:text-cyan-200',
-  },
-  neutral: {
-    badge: null as string | null,
-    badgeClass: '',
-    heading: 'Welcome Back',
-    subtitle: 'Continue where you left off.',
-    createHref: (from: string | null) => {
-      const params = new URLSearchParams()
-      if (from) params.set('from', from)
-      const qs = params.toString()
-      return qs ? `/signup?${qs}` : '/signup'
-    },
-    linkClass: 'text-white hover:text-white',
-  },
-} as const
-
 interface LoginCardProps {
   className?: string
 }
 
 export function LoginCard({ className }: LoginCardProps) {
+  const t = useTranslations('auth')
   const router = useRouter()
   const searchParams = useSearchParams()
   const prefersReducedMotion = useReducedMotion()
@@ -82,6 +43,49 @@ export function LoginCard({ className }: LoginCardProps) {
   const role = parseRole(searchParams.get('role'))
   const from = searchParams.get('from')
   const accent = roleToAccent(role)
+
+  const copyByRole = {
+    creator: {
+      badge: t('creatorBadge'),
+      badgeClass:
+        'bg-gradient-to-r from-violet-300 via-fuchsia-300 to-pink-300 bg-clip-text text-transparent',
+      heading: t('welcomeBackCreator'),
+      subtitle: t('creatorSubtitle'),
+      createHref: (f: string | null) => {
+        const params = new URLSearchParams({ role: 'creator' })
+        if (f) params.set('from', f)
+        return `/register?${params.toString()}`
+      },
+      linkClass: 'text-fuchsia-300 hover:text-pink-200',
+    },
+    user: {
+      badge: t('userBadge'),
+      badgeClass:
+        'bg-gradient-to-r from-sky-300 via-cyan-300 to-blue-300 bg-clip-text text-transparent',
+      heading: t('welcomeBackUser'),
+      subtitle: t('userSubtitle'),
+      createHref: (f: string | null) => {
+        const params = new URLSearchParams({ role: 'user' })
+        if (f) params.set('from', f)
+        return `/register?${params.toString()}`
+      },
+      linkClass: 'text-sky-300 hover:text-cyan-200',
+    },
+    neutral: {
+      badge: null as string | null,
+      badgeClass: '',
+      heading: t('welcomeBack'),
+      subtitle: t('continueWhereLeft'),
+      createHref: (f: string | null) => {
+        const params = new URLSearchParams()
+        if (f) params.set('from', f)
+        const qs = params.toString()
+        return qs ? `/signup?${qs}` : '/signup'
+      },
+      linkClass: 'text-white hover:text-white',
+    },
+  } as const
+
   const copy = copyByRole[role ?? 'neutral']
 
   const [error, setError] = useState('')
@@ -188,6 +192,7 @@ export function LoginCard({ className }: LoginCardProps) {
             loading={googleLoading}
             disabled={loading}
             onClick={handleGoogleLogin}
+            label={t('continueWithGoogle')}
           />
 
           <div className="flex items-center gap-3 py-1">
@@ -208,7 +213,7 @@ export function LoginCard({ className }: LoginCardProps) {
         />
 
         <p className="mt-6 text-center text-[13px] text-white/45">
-          Don&apos;t have an account?{' '}
+          {t('noAccount')}{' '}
           <motion.span className="inline-block" whileHover={{ y: -1 }}>
             <Link
               href={copy.createHref(from)}
@@ -217,10 +222,14 @@ export function LoginCard({ className }: LoginCardProps) {
                 copy.linkClass
               )}
             >
-              Create Account
+              {t('createOne')}
             </Link>
           </motion.span>
         </p>
+
+        <div className="mt-4 flex justify-center">
+          <LanguageSwitcher compact />
+        </div>
       </RegisterGlassCard>
     </motion.div>
   )

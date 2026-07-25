@@ -1,0 +1,82 @@
+{
+  "common": {
+    "language": "Language",
+    "save": "Save",
+    "logout": "Log out",
+    "back": "Back",
+    "loading": "Loading…",
+    "viewPublicProfile": "View public profile",
+    "creatorStudio": "Creator Studio",
+    "forYou": "For you",
+    "mainNav": "Main"
+  },
+  "auth": {
+    "welcomeBack": "Welcome Back",
+    "welcomeBackCreator": "Welcome back, Creator",
+    "welcomeBackUser": "Welcome back",
+    "continueWhereLeft": "Continue where you left off.",
+    "creatorSubtitle": "Manage your audience, subscriptions and earnings.",
+    "userSubtitle": "Discover new creators and continue watching.",
+    "creatorBadge": "Creator Login",
+    "userBadge": "User Login",
+    "email": "Email",
+    "password": "Password",
+    "signIn": "Sign in",
+    "signingIn": "Signing in…",
+    "continueWithGoogle": "Continue with Google",
+    "noAccount": "Don't have an account?",
+    "createOne": "Create one",
+    "createAccount": "Create account",
+    "displayName": "Display name",
+    "username": "Username",
+    "alreadyHaveAccount": "Already have an account?",
+    "signInLink": "Sign in",
+    "registerCreator": "Join as a creator",
+    "registerUser": "Join as a fan"
+  },
+  "nav": {
+    "user": {
+      "home": "Home",
+      "subscriptions": "Subscriptions",
+      "live": "Live",
+      "billing": "Billing",
+      "profile": "Profile",
+      "settings": "Settings"
+    },
+    "creator": {
+      "dashboard": "Dashboard",
+      "create": "Create",
+      "content": "Content",
+      "stories": "Stories",
+      "highlights": "Highlights",
+      "liveEvents": "Live Events",
+      "messages": "Messages",
+      "calls": "Calls",
+      "subscribers": "Subscribers",
+      "monetization": "Monetization",
+      "analytics": "Analytics",
+      "revenue": "Revenue",
+      "socialLinks": "Social Links",
+      "settings": "Settings"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "preferences": "Preferences",
+    "fanSubtitle": "Manage your fan account, privacy, and billing.",
+    "backToProfile": "Back to profile",
+    "languageHint": "Choose the language for the LinkMe interface.",
+    "account": "Account",
+    "accountDesc": "Update your username, password, and profile picture.",
+    "privacy": "Privacy",
+    "privacyDesc": "Control who can find and message you.",
+    "billing": "Billing",
+    "billingDesc": "Wallet balance, payments, and invoices.",
+    "notifications": "Notifications",
+    "notificationsDesc": "Choose which activity alerts you receive.",
+    "creatorTitle": "Profile & settings",
+    "creatorSubtitle": "Public profile, appearance, and account preferences.",
+    "languageSection": "Language",
+    "languageSectionDesc": "App interface language for Creator Studio and fan views."
+  }
+}

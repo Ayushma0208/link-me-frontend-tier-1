@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { NextConfig } from 'next'
 import withSerwistInit from '@serwist/next'
+import createNextIntlPlugin from 'next-intl/plugin'
+
+const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
 
 const API_URL = process.env.API_URL ?? 'http://localhost:4000'
 
@@ -25,6 +28,19 @@ const withSerwist = withSerwistInit({
 const nextConfig: NextConfig = {
   output: 'standalone',
   transpilePackages: ['@link-me/shared'],
+  // next-intl + Turbopack: alias must be explicit or getRequestConfig never resolves
+  turbopack: {
+    resolveAlias: {
+      'next-intl/config': './src/i18n/request.ts',
+    },
+  },
+  experimental: {
+    turbo: {
+      resolveAlias: {
+        'next-intl/config': './src/i18n/request.ts',
+      },
+    },
+  },
   images: {
     remotePatterns: [
       {
@@ -64,4 +80,5 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default enablePwa ? withSerwist(nextConfig) : nextConfig
+const withIntl = withNextIntl(nextConfig)
+export default enablePwa ? withSerwist(withIntl) : withIntl

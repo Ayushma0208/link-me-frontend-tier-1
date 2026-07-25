@@ -10,6 +10,7 @@ export interface BackendPublicUser {
   status?: string
   avatarUrl?: string | null
   emailVerifiedAt?: string | null
+  locale?: string
   createdAt?: string
 }
 
@@ -39,6 +40,7 @@ export function mapBackendUser(user: BackendPublicUser): AuthUser {
     role: mapRole(user.role),
     avatar: user.avatarUrl ?? null,
     walletBalance: 0,
+    locale: user.locale ?? 'en',
   }
 }
 

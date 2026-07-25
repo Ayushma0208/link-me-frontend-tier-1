@@ -1,16 +1,16 @@
 'use client'
 
 import { Suspense } from 'react'
-import { NotificationsPage } from '@/components/dashboard/NotificationsPage'
+import { CreatorNotificationsStudio } from '@/views/influencer/CreatorNotificationsStudio'
 
-export default function UserNotificationsRoute() {
+export default function InfluencerNotificationsPage() {
   return (
     <Suspense
       fallback={
         <p className="px-6 py-10 text-[13px] text-white/40">Loading…</p>
       }
     >
-      <NotificationsPage />
+      <CreatorNotificationsStudio />
     </Suspense>
   )
 }

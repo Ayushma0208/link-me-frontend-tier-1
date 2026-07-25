@@ -33,6 +33,7 @@ export interface AuthUser {
   role: UserRole
   avatar?: string | null
   walletBalance: number
+  locale?: string
 }
 
 export interface SocialLinkDto {

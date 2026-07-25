@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import {
   LayoutDashboard,
   PlusSquare,
@@ -27,32 +28,48 @@ import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useCreatorPageStore } from '@/stores/creator-page'
 
+export type CreatorNavKey =
+  | 'dashboard'
+  | 'create'
+  | 'content'
+  | 'stories'
+  | 'highlights'
+  | 'liveEvents'
+  | 'messages'
+  | 'calls'
+  | 'subscribers'
+  | 'monetization'
+  | 'analytics'
+  | 'revenue'
+  | 'socialLinks'
+  | 'settings'
+
 export interface StudioNavItem {
-  label: string
+  key: CreatorNavKey
   href: string
   icon: LucideIcon
   exact?: boolean
 }
 
 export const creatorStudioNav: StudioNavItem[] = [
-  { label: 'Dashboard', href: '/influencer', icon: LayoutDashboard, exact: true },
-  { label: 'Create', href: '/influencer/create', icon: PlusSquare },
-  { label: 'Content', href: '/influencer/content', icon: Clapperboard },
-  { label: 'Stories', href: '/influencer/stories', icon: CircleDot },
-  { label: 'Highlights', href: '/influencer/highlights', icon: Sparkles },
-  { label: 'Live Events', href: '/influencer/live', icon: Radio },
-  { label: 'Messages', href: '/influencer/messages', icon: MessageSquare },
-  { label: 'Calls', href: '/influencer/calls', icon: PhoneCall },
-  { label: 'Subscribers', href: '/influencer/subscribers', icon: Users },
+  { key: 'dashboard', href: '/influencer', icon: LayoutDashboard, exact: true },
+  { key: 'create', href: '/influencer/create', icon: PlusSquare },
+  { key: 'content', href: '/influencer/content', icon: Clapperboard },
+  { key: 'stories', href: '/influencer/stories', icon: CircleDot },
+  { key: 'highlights', href: '/influencer/highlights', icon: Sparkles },
+  { key: 'liveEvents', href: '/influencer/live', icon: Radio },
+  { key: 'messages', href: '/influencer/messages', icon: MessageSquare },
+  { key: 'calls', href: '/influencer/calls', icon: PhoneCall },
+  { key: 'subscribers', href: '/influencer/subscribers', icon: Users },
   {
-    label: 'Monetization',
+    key: 'monetization',
     href: '/influencer/monetization',
     icon: BadgeIndianRupee,
   },
-  { label: 'Analytics', href: '/influencer/analytics', icon: BarChart3 },
-  { label: 'Revenue', href: '/influencer/revenue', icon: Wallet },
-  { label: 'Social Links', href: '/influencer/social', icon: Share2 },
-  { label: 'Settings', href: '/influencer/settings', icon: Settings },
+  { key: 'analytics', href: '/influencer/analytics', icon: BarChart3 },
+  { key: 'revenue', href: '/influencer/revenue', icon: Wallet },
+  { key: 'socialLinks', href: '/influencer/social', icon: Share2 },
+  { key: 'settings', href: '/influencer/settings', icon: Settings },
 ]
 
 const MOBILE_TABS = [
@@ -94,6 +111,8 @@ function isActive(pathname: string, item: StudioNavItem) {
 }
 
 export function CreatorSidebar() {
+  const t = useTranslations('nav.creator')
+  const tc = useTranslations('common')
   const pathname = usePathname()
   const prefersReducedMotion = useReducedMotion()
   const user = useAuthStore((s) => s.user)
@@ -115,13 +134,14 @@ export function CreatorSidebar() {
             <Logo markSize="md" />
           </Link>
           <p className="mt-3 text-[11px] font-semibold tracking-[0.16em] text-transparent uppercase bg-gradient-to-r from-violet-300 via-fuchsia-300 to-pink-300 bg-clip-text">
-            Creator Studio
+            {tc('creatorStudio')}
           </p>
         </div>
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
           {creatorStudioNav.map((item) => {
             const active = isActive(pathname, item)
+            const label = t(item.key)
             return (
               <Link
                 key={item.href}
@@ -148,7 +168,7 @@ export function CreatorSidebar() {
                   className="relative z-10 size-[18px] shrink-0"
                   strokeWidth={active ? 2.25 : 1.75}
                 />
-                <span className="relative z-10 truncate">{item.label}</span>
+                <span className="relative z-10 truncate">{label}</span>
               </Link>
             )
           })}
@@ -160,26 +180,24 @@ export function CreatorSidebar() {
             className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12px] font-medium text-white/70 transition-colors hover:text-white"
           >
             <ExternalLink className="size-3.5" />
-            View public profile
+            {tc('viewPublicProfile')}
           </Link>
           <button
             type="button"
             onClick={handleSignOut}
             className="w-full text-left text-[12px] text-white/35 transition-colors hover:text-white/70"
           >
-            Sign out
+            {tc('logout')}
           </button>
         </div>
       </aside>
 
-      {/* Mobile bottom — primary destinations */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-around border-t border-white/8 bg-[#0a0a10]/95 px-1 py-2 backdrop-blur-xl lg:hidden">
         {creatorStudioNav
           .filter((item) => MOBILE_TABS.includes(item.href))
           .map((item) => {
             const active = isActive(pathname, item)
-            const short =
-              item.label === 'Monetization' ? 'Earn' : item.label
+            const label = t(item.key)
             return (
               <Link
                 key={item.href}
@@ -190,7 +208,7 @@ export function CreatorSidebar() {
                 )}
               >
                 <item.icon className="size-5" strokeWidth={active ? 2.25 : 1.75} />
-                {short.split(' ')[0]}
+                {label.split(' ')[0]}
               </Link>
             )
           })}

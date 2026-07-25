@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
-  Bell,
   ImagePlus,
   Plus,
   Search,
@@ -15,9 +14,10 @@ import {
   UserRound,
 } from 'lucide-react'
 
+import { CreatorNotificationsMenu } from '@/components/creator-studio/CreatorNotificationsMenu'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import { useAuthStore } from '@/stores/auth'
 import { useCreatorPageStore } from '@/stores/creator-page'
-import { cn } from '@/lib/utils'
 
 const FALLBACK_AVATAR =
   'https://api.dicebear.com/9.x/initials/svg?seed=Creator'
@@ -59,11 +59,8 @@ export function CreatorTopNavbar() {
 
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [notifOpen, setNotifOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
-
-  const unread = 0
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -79,7 +76,6 @@ export function CreatorTopNavbar() {
     function onDoc(e: MouseEvent) {
       if (!wrapRef.current?.contains(e.target as Node)) {
         setSearchOpen(false)
-        setNotifOpen(false)
         setCreateOpen(false)
       }
     }
@@ -141,14 +137,12 @@ export function CreatorTopNavbar() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <LanguageSwitcher compact className="hidden md:flex" />
           <div className="relative">
             <motion.button
               type="button"
               whileHover={prefersReducedMotion ? undefined : { y: -1 }}
-              onClick={() => {
-                setCreateOpen((v) => !v)
-                setNotifOpen(false)
-              }}
+              onClick={() => setCreateOpen((v) => !v)}
               className="inline-flex h-10 items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-pink-500 px-3.5 text-[13px] font-semibold text-white shadow-[0_12px_32px_rgba(217,70,239,0.35)] sm:px-4"
             >
               <Plus className="size-4" />
@@ -185,43 +179,7 @@ export function CreatorTopNavbar() {
             </AnimatePresence>
           </div>
 
-          <div className="relative">
-            <button
-              type="button"
-              aria-label="Notifications"
-              onClick={() => {
-                setNotifOpen((v) => !v)
-                setCreateOpen(false)
-              }}
-              className="relative flex size-10 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
-            >
-              <Bell className="size-4" />
-              {unread > 0 ? (
-                <span className="absolute top-2 right-2 size-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_rgba(232,121,249,0.8)]" />
-              ) : null}
-            </button>
-            <AnimatePresence>
-              {notifOpen ? (
-                <motion.div
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 4 }}
-                  className="absolute top-[calc(100%+8px)] right-0 z-50 w-80 overflow-hidden rounded-2xl border border-white/12 bg-[#12121a]/95 shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl"
-                >
-                  <div className="border-b border-white/8 px-4 py-3">
-                    <p className="text-[13px] font-semibold text-white">
-                      Notifications
-                    </p>
-                  </div>
-                  <ul className="max-h-72 overflow-y-auto p-2">
-                    <li className="rounded-xl px-3 py-6 text-center text-[13px] text-white/40">
-                      No notifications yet
-                    </li>
-                  </ul>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-          </div>
+          <CreatorNotificationsMenu />
 
           <Link
             href="/influencer/settings"
