@@ -9,6 +9,7 @@ import { BadgeCheck, Check, MoreHorizontal, UserPlus } from 'lucide-react'
 import { ImagePost } from '@/components/dashboard/ImagePost'
 import { LockedPost } from '@/components/dashboard/LockedPost'
 import { PostActions } from '@/components/dashboard/PostActions'
+import { PostCommentsSheet } from '@/components/dashboard/PostCommentsSheet'
 import { VideoPost } from '@/components/dashboard/VideoPost'
 import {
   formatFeedTime,
@@ -16,6 +17,7 @@ import {
   type FeedPost,
   type FeedSource,
 } from '@/data/user-feed'
+import { likePost, unlikePost } from '@/lib/post-engagement'
 import { cn } from '@/lib/utils'
 
 const SOURCE_LABEL: Record<FeedSource, string> = {
@@ -39,16 +41,33 @@ export interface PostCardProps {
 
 export function PostCard({ post, creator, onUnlock, className }: PostCardProps) {
   const prefersReducedMotion = useReducedMotion()
-  const [liked, setLiked] = useState(false)
+  const [liked, setLiked] = useState(Boolean(post.likedByMe))
   const [saved, setSaved] = useState(false)
   const [likeCount, setLikeCount] = useState(post.likes)
+  const [commentCount, setCommentCount] = useState(post.comments)
+  const [likeBusy, setLikeBusy] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
   const [following, setFollowing] = useState(creator.isFollowing)
   const showFollow = !following && !creator.isSubscribed
 
-  function toggleLike() {
+  async function toggleLike() {
+    if (likeBusy) return
     const wasLiked = liked
     setLiked(!wasLiked)
-    setLikeCount((count) => (wasLiked ? count - 1 : count + 1))
+    setLikeCount((count) => (wasLiked ? Math.max(0, count - 1) : count + 1))
+    setLikeBusy(true)
+    try {
+      const res = wasLiked
+        ? await unlikePost(post.id)
+        : await likePost(post.id)
+      setLiked(res.liked)
+      setLikeCount(res.likeCount)
+    } catch {
+      setLiked(wasLiked)
+      setLikeCount((count) => (wasLiked ? count + 1 : Math.max(0, count - 1)))
+    } finally {
+      setLikeBusy(false)
+    }
   }
 
   async function share() {
@@ -181,8 +200,9 @@ export function PostCard({ post, creator, onUnlock, className }: PostCardProps) 
           liked={liked}
           saved={saved}
           likeCount={likeCount}
-          commentCount={post.comments}
-          onLike={toggleLike}
+          commentCount={commentCount}
+          onLike={() => void toggleLike()}
+          onComment={() => setCommentsOpen(true)}
           onSave={() => setSaved((v) => !v)}
           onShare={share}
         />
@@ -210,6 +230,13 @@ export function PostCard({ post, creator, onUnlock, className }: PostCardProps) 
           </div>
         ) : null}
       </div>
+
+      <PostCommentsSheet
+        postId={commentsOpen ? post.id : null}
+        open={commentsOpen}
+        onOpenChange={setCommentsOpen}
+        onCommentCountChange={setCommentCount}
+      />
     </motion.article>
   )
 }

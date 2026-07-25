@@ -1,0 +1,82 @@
+{
+  "common": {
+    "language": "Bahasa",
+    "save": "Simpan",
+    "logout": "Keluar",
+    "back": "Kembali",
+    "loading": "Memuat…",
+    "viewPublicProfile": "Lihat profil publik",
+    "creatorStudio": "Studio kreator",
+    "forYou": "Untuk Anda",
+    "mainNav": "Utama"
+  },
+  "auth": {
+    "welcomeBack": "Selamat datang kembali",
+    "welcomeBackCreator": "Selamat datang kembali, Kreator",
+    "welcomeBackUser": "Selamat datang kembali",
+    "continueWhereLeft": "Lanjutkan dari tempat Anda berhenti.",
+    "creatorSubtitle": "Kelola audiens, langganan, dan penghasilan Anda.",
+    "userSubtitle": "Temukan kreator baru dan lanjutkan menonton.",
+    "creatorBadge": "Login kreator",
+    "userBadge": "Login pengguna",
+    "email": "Email",
+    "password": "Kata sandi",
+    "signIn": "Masuk",
+    "signingIn": "Sedang masuk…",
+    "continueWithGoogle": "Lanjutkan dengan Google",
+    "noAccount": "Belum punya akun?",
+    "createOne": "Buat akun",
+    "createAccount": "Buat akun",
+    "displayName": "Nama tampilan",
+    "username": "Nama pengguna",
+    "alreadyHaveAccount": "Sudah punya akun?",
+    "signInLink": "Masuk",
+    "registerCreator": "Gabung sebagai kreator",
+    "registerUser": "Gabung sebagai penggemar"
+  },
+  "nav": {
+    "user": {
+      "home": "Beranda",
+      "subscriptions": "Langganan",
+      "live": "Live",
+      "billing": "Pembayaran",
+      "profile": "Profil",
+      "settings": "Pengaturan"
+    },
+    "creator": {
+      "dashboard": "Dasbor",
+      "create": "Buat",
+      "content": "Konten",
+      "stories": "Cerita",
+      "highlights": "Sorotan",
+      "liveEvents": "Acara live",
+      "messages": "Pesan",
+      "calls": "Panggilan",
+      "subscribers": "Subscriber",
+      "monetization": "Monetisasi",
+      "analytics": "Analitik",
+      "revenue": "Pendapatan",
+      "socialLinks": "Tautan sosial",
+      "settings": "Pengaturan"
+    }
+  },
+  "settings": {
+    "title": "Pengaturan",
+    "preferences": "Preferensi",
+    "fanSubtitle": "Kelola akun penggemar, privasi, dan pembayaran Anda.",
+    "backToProfile": "Kembali ke profil",
+    "languageHint": "Pilih bahasa antarmuka LinkMe.",
+    "account": "Akun",
+    "accountDesc": "Perbarui nama pengguna, kata sandi, dan foto profil.",
+    "privacy": "Privasi",
+    "privacyDesc": "Kontrol siapa yang dapat menemukan dan menghubungi Anda.",
+    "billing": "Pembayaran",
+    "billingDesc": "Saldo dompet, pembayaran, dan faktur.",
+    "notifications": "Notifikasi",
+    "notificationsDesc": "Pilih peringatan aktivitas yang Anda terima.",
+    "creatorTitle": "Profil & pengaturan",
+    "creatorSubtitle": "Profil publik, tampilan, dan preferensi akun.",
+    "languageSection": "Bahasa",
+    "languageSectionDesc": "Bahasa antarmuka untuk Studio Kreator dan tampilan penggemar."
+  }
+}

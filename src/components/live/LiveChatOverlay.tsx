@@ -11,9 +11,11 @@ import {
   Send,
   Smile,
 } from 'lucide-react'
+import { SeeTranslation } from '@/components/i18n/SeeTranslation'
 import {
   connectLiveSocket,
   type LiveChatMessage,
+  type LiveMessageI18nPayload,
 } from '@/lib/live-socket'
 import { LIVE_GIFTS, getLiveGift } from '@/lib/live-gifts'
 import { cn, formatCurrency } from '@/lib/utils'
@@ -49,7 +51,62 @@ function messagePreview(msg: LiveChatMessage): string {
     const gift = getLiveGift(msg.giftId ?? msg.body)
     return `${msg.giftEmoji ?? gift?.emoji ?? '🎁'} ${msg.giftLabel ?? gift?.label ?? 'Gift'}`
   }
-  return msg.body
+  return msg.bodyTranslated?.trim() || msg.body
+}
+
+function normText(value: string) {
+  return value.normalize('NFC').trim().replace(/\s+/g, ' ')
+}
+
+function ChatTextBody({
+  body,
+  bodyTranslated,
+  clamp,
+  buttonClassName,
+}: {
+  body: string
+  bodyTranslated?: string
+  clamp?: boolean
+  buttonClassName?: string
+}) {
+  const [showOriginal, setShowOriginal] = useState(false)
+  const auto =
+    bodyTranslated &&
+    normText(bodyTranslated) !== normText(body)
+      ? bodyTranslated
+      : null
+
+  if (!auto) {
+    return (
+      <>
+        <span className={cn('block', clamp && 'line-clamp-2')}>{body}</span>
+        <SeeTranslation text={body} buttonClassName={buttonClassName} />
+      </>
+    )
+  }
+
+  return (
+    <>
+      {!showOriginal ? (
+        <span className="mb-0.5 block text-[10px] font-semibold tracking-wide text-sky-300/90 uppercase">
+          Translated
+        </span>
+      ) : null}
+      <span className={cn('block', clamp && 'line-clamp-2')}>
+        {showOriginal ? body : auto}
+      </span>
+      <button
+        type="button"
+        onClick={() => setShowOriginal((v) => !v)}
+        className={cn(
+          'mt-0.5 text-[11px] font-semibold text-sky-300/90 transition hover:text-sky-200',
+          buttonClassName
+        )}
+      >
+        {showOriginal ? 'See translation' : 'See original'}
+      </button>
+    </>
+  )
 }
 
 export function LiveChatOverlay({
@@ -69,6 +126,7 @@ export function LiveChatOverlay({
   const listRef = useRef<HTMLDivElement>(null)
   const joinedRef = useRef(false)
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
+  const pendingI18nRef = useRef(new Map<string, LiveMessageI18nPayload>())
 
   useEffect(() => {
     const socket = connectLiveSocket()
@@ -107,9 +165,38 @@ export function LiveChatOverlay({
     }
 
     const onMessage = (msg: LiveChatMessage) => {
+      const pending = pendingI18nRef.current.get(msg.id)
+      if (pending) pendingI18nRef.current.delete(msg.id)
+      const next: LiveChatMessage = pending
+        ? {
+            ...msg,
+            bodyTranslated: pending.bodyTranslated,
+            translatedTo: pending.translatedTo,
+          }
+        : msg
       setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev
-        return [...prev, msg].slice(-80)
+        if (prev.some((m) => m.id === next.id)) return prev
+        return [...prev, next].slice(-80)
+      })
+    }
+
+    const onMessageI18n = (payload: LiveMessageI18nPayload) => {
+      if (!payload?.id || !payload.bodyTranslated) return
+      setMessages((prev) => {
+        const exists = prev.some((m) => m.id === payload.id)
+        if (!exists) {
+          pendingI18nRef.current.set(payload.id, payload)
+          return prev
+        }
+        return prev.map((m) =>
+          m.id === payload.id
+            ? {
+                ...m,
+                bodyTranslated: payload.bodyTranslated,
+                translatedTo: payload.translatedTo,
+              }
+            : m
+        )
       })
     }
 
@@ -127,6 +214,7 @@ export function LiveChatOverlay({
 
     socket.on('live:joined', onJoined)
     socket.on('live:message', onMessage)
+    socket.on('live:message-i18n', onMessageI18n)
     socket.on('live:pinned', onPinned)
     socket.on('live:error', onLiveError)
     socket.on('connect', join)
@@ -145,6 +233,7 @@ export function LiveChatOverlay({
       window.clearInterval(retry)
       socket.off('live:joined', onJoined)
       socket.off('live:message', onMessage)
+      socket.off('live:message-i18n', onMessageI18n)
       socket.off('live:pinned', onPinned)
       socket.off('live:error', onLiveError)
       socket.off('connect', join)
@@ -250,9 +339,20 @@ export function LiveChatOverlay({
                   <p className="text-[11px] font-semibold text-amber-100">
                     Pinned · {pinned.user.name}
                   </p>
-                  <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-white">
-                    {messagePreview(pinned)}
-                  </p>
+                  {pinned.kind === 'TEXT' ? (
+                    <div className="mt-0.5 text-[13px] leading-snug text-white">
+                      <ChatTextBody
+                        body={pinned.body}
+                        bodyTranslated={pinned.bodyTranslated}
+                        clamp
+                        buttonClassName="text-amber-100/80 hover:text-amber-50"
+                      />
+                    </div>
+                  ) : (
+                    <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-white">
+                      {messagePreview(pinned)}
+                    </p>
+                  )}
                 </div>
                 {isHost ? (
                   <button
@@ -310,7 +410,10 @@ export function LiveChatOverlay({
                     </span>
                   ) : (
                     <span className="min-w-0 flex-1 text-[13px] leading-snug text-white/90">
-                      {msg.body}
+                      <ChatTextBody
+                        body={msg.body}
+                        bodyTranslated={msg.bodyTranslated}
+                      />
                     </span>
                   )}
                   {isHost ? (

@@ -32,6 +32,7 @@ interface ApiPost {
   price: string | null
   likeCount: number
   commentCount: number
+  likedByMe?: boolean
   locked: boolean
   unlockReason: string | null
   createdAt: string
@@ -143,6 +144,7 @@ function mapApiPost(
     price: post.price ? Number(post.price) : null,
     likes: post.likeCount,
     comments: post.commentCount,
+    likedByMe: Boolean(post.likedByMe),
     source: isSubscribed ? 'subscribed' : source,
     createdAt: post.createdAt,
   }

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import {
   CreditCard,
   Home,
@@ -15,18 +16,18 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 interface MobileNavItem {
-  label: string
+  key: 'home' | 'subscriptions' | 'billing' | 'profile' | 'settings'
   href: string
   icon: LucideIcon
   exact?: boolean
 }
 
 const MOBILE_NAV: MobileNavItem[] = [
-  { label: 'Home', href: '/user', icon: Home, exact: true },
-  { label: 'Subscriptions', href: '/user/subscriptions', icon: CreditCard },
-  { label: 'Billing', href: '/user/wallet', icon: Wallet },
-  { label: 'Profile', href: '/user/profile', icon: UserRound },
-  { label: 'Settings', href: '/user/settings', icon: Settings },
+  { key: 'home', href: '/user', icon: Home, exact: true },
+  { key: 'subscriptions', href: '/user/subscriptions', icon: CreditCard },
+  { key: 'billing', href: '/user/wallet', icon: Wallet },
+  { key: 'profile', href: '/user/profile', icon: UserRound },
+  { key: 'settings', href: '/user/settings', icon: Settings },
 ]
 
 function isActive(pathname: string, item: MobileNavItem) {
@@ -39,6 +40,8 @@ interface BottomNavigationProps {
 }
 
 export function BottomNavigation({ className }: BottomNavigationProps) {
+  const t = useTranslations('nav.user')
+  const tc = useTranslations('common')
   const pathname = usePathname()
   const prefersReducedMotion = useReducedMotion()
 
@@ -47,7 +50,7 @@ export function BottomNavigation({ className }: BottomNavigationProps) {
       initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-      aria-label="Mobile navigation"
+      aria-label={tc('mainNav')}
       className={cn(
         'fixed inset-x-0 bottom-0 z-40 lg:hidden',
         'border-t border-white/[0.08] bg-[#0a0a10]/92 backdrop-blur-2xl',
@@ -82,7 +85,7 @@ export function BottomNavigation({ className }: BottomNavigationProps) {
                 className="relative z-10 size-5"
                 strokeWidth={active ? 2.25 : 1.75}
               />
-              <span className="relative z-10">{item.label}</span>
+              <span className="relative z-10">{t(item.key)}</span>
             </Link>
           )
         })}

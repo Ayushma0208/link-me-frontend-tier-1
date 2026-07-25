@@ -1,0 +1,82 @@
+{
+  "common": {
+    "language": "اللغة",
+    "save": "حفظ",
+    "logout": "تسجيل الخروج",
+    "back": "رجوع",
+    "loading": "جارٍ التحميل…",
+    "viewPublicProfile": "عرض الملف العام",
+    "creatorStudio": "استوديو المبدع",
+    "forYou": "لك",
+    "mainNav": "الرئيسية"
+  },
+  "auth": {
+    "welcomeBack": "مرحبًا بعودتك",
+    "welcomeBackCreator": "مرحبًا بعودتك، أيها المبدع",
+    "welcomeBackUser": "مرحبًا بعودتك",
+    "continueWhereLeft": "تابع من حيث توقفت.",
+    "creatorSubtitle": "أدِر جمهورك واشتراكاتك وأرباحك.",
+    "userSubtitle": "اكتشف مبدعين جدد وواصل المشاهدة.",
+    "creatorBadge": "دخول المبدع",
+    "userBadge": "دخول المستخدم",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "signIn": "تسجيل الدخول",
+    "signingIn": "جارٍ تسجيل الدخول…",
+    "continueWithGoogle": "المتابعة مع Google",
+    "noAccount": "ليس لديك حساب؟",
+    "createOne": "أنشئ حسابًا",
+    "createAccount": "إنشاء حساب",
+    "displayName": "الاسم الظاهر",
+    "username": "اسم المستخدم",
+    "alreadyHaveAccount": "لديك حساب بالفعل؟",
+    "signInLink": "تسجيل الدخول",
+    "registerCreator": "انضم كمبدع",
+    "registerUser": "انضم كمتابع"
+  },
+  "nav": {
+    "user": {
+      "home": "الرئيسية",
+      "subscriptions": "الاشتراكات",
+      "live": "مباشر",
+      "billing": "الفوترة",
+      "profile": "الملف الشخصي",
+      "settings": "الإعدادات"
+    },
+    "creator": {
+      "dashboard": "لوحة التحكم",
+      "create": "إنشاء",
+      "content": "المحتوى",
+      "stories": "القصص",
+      "highlights": "الأبرز",
+      "liveEvents": "البث المباشر",
+      "messages": "الرسائل",
+      "calls": "المكالمات",
+      "subscribers": "المشتركون",
+      "monetization": "الربح",
+      "analytics": "التحليلات",
+      "revenue": "الإيرادات",
+      "socialLinks": "روابط التواصل",
+      "settings": "الإعدادات"
+    }
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "preferences": "التفضيلات",
+    "fanSubtitle": "أدِر حساب المتابع والخصوصية والفوترة.",
+    "backToProfile": "العودة إلى الملف",
+    "languageHint": "اختر لغة واجهة LinkMe.",
+    "account": "الحساب",
+    "accountDesc": "حدّث اسم المستخدم وكلمة المرور وصورة الملف.",
+    "privacy": "الخصوصية",
+    "privacyDesc": "تحكم في من يمكنه العثور عليك ومراسلتك.",
+    "billing": "الفوترة",
+    "billingDesc": "رصيد المحفظة والمدفوعات والفواتير.",
+    "notifications": "الإشعارات",
+    "notificationsDesc": "اختر تنبيهات النشاط التي تتلقاها.",
+    "creatorTitle": "الملف والإعدادات",
+    "creatorSubtitle": "الملف العام والمظهر وتفضيلات الحساب.",
+    "languageSection": "اللغة",
+    "languageSectionDesc": "لغة واجهة التطبيق لاستوديو المبدع وعرض المتابع."
+  }
+}

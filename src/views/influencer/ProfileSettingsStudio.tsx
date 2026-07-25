@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useTranslations } from 'next-intl'
 import {
   Camera,
   Check,
@@ -26,6 +27,7 @@ import { ProfileThemePreview } from '@/components/creator-studio/ProfileThemePre
 import { PublicUrlField } from '@/components/creator-studio/PublicUrlField'
 import { StudioGlassCard } from '@/components/creator-studio/StudioGlassCard'
 import { StudioPageHeader } from '@/components/creator-studio/StudioPageHeader'
+import { LanguageSwitcher } from '@/components/i18n/LanguageSwitcher'
 import {
   defaultCoffeeConfig,
   subscriptionOverview,
@@ -132,6 +134,8 @@ const fieldClass =
   'mt-2 h-11 w-full rounded-2xl border border-white/12 bg-white/[0.05] px-3.5 text-[14px] text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/40'
 
 export function ProfileSettingsStudio() {
+  const t = useTranslations('settings')
+  const tc = useTranslations('common')
   const prefersReducedMotion = useReducedMotion()
   const user = useAuthStore((s) => s.user)
   const setUser = useAuthStore((s) => s.setUser)
@@ -421,8 +425,8 @@ export function ProfileSettingsStudio() {
   return (
     <div>
       <StudioPageHeader
-        title="Profile Settings"
-        description="Craft your public creator page — identity, monetization, theme, and SEO in one place."
+        title={t('creatorTitle')}
+        description={t('creatorSubtitle')}
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -432,7 +436,7 @@ export function ProfileSettingsStudio() {
               className="inline-flex h-11 items-center gap-2 rounded-full border border-white/12 bg-white/[0.06] px-4 text-[13px] font-semibold text-white hover:bg-white/[0.1]"
             >
               <ExternalLink className="size-3.5" />
-              View page
+              {tc('viewPublicProfile')}
             </Link>
             <motion.button
               type="button"
@@ -446,15 +450,15 @@ export function ProfileSettingsStudio() {
               {saving ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Saving…
+                  {tc('loading')}
                 </>
               ) : saved ? (
                 <>
                   <Check className="size-4" />
-                  Saved
+                  {tc('save')}
                 </>
               ) : (
-                'Save changes'
+                tc('save')
               )}
             </motion.button>
           </div>
@@ -467,9 +471,18 @@ export function ProfileSettingsStudio() {
       {loading ? (
         <p className="mb-4 flex items-center gap-2 text-[13px] text-white/45">
           <Loader2 className="size-3.5 animate-spin" />
-          Loading your profile…
+          {tc('loading')}
         </p>
       ) : null}
+
+      <StudioGlassCard className="mb-6 p-5">
+        <SectionTitle
+          title={t('languageSection')}
+          description={t('languageSectionDesc')}
+          icon={Globe}
+        />
+        <LanguageSwitcher />
+      </StudioGlassCard>
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="space-y-6 lg:col-span-3">

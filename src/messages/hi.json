@@ -1,0 +1,82 @@
+{
+  "common": {
+    "language": "भाषा",
+    "save": "सहेजें",
+    "logout": "लॉग आउट",
+    "back": "वापस",
+    "loading": "लोड हो रहा है…",
+    "viewPublicProfile": "सार्वजनिक प्रोफ़ाइल देखें",
+    "creatorStudio": "क्रिएटर स्टूडियो",
+    "forYou": "आपके लिए",
+    "mainNav": "मुख्य"
+  },
+  "auth": {
+    "welcomeBack": "फिर से स्वागत है",
+    "welcomeBackCreator": "स्वागत है, क्रिएटर",
+    "welcomeBackUser": "फिर से स्वागत है",
+    "continueWhereLeft": "जहाँ छोड़ा था वहीं से जारी रखें।",
+    "creatorSubtitle": "अपने दर्शक, सदस्यताएँ और कमाई प्रबंधित करें।",
+    "userSubtitle": "नए क्रिएटर खोजें और देखना जारी रखें।",
+    "creatorBadge": "क्रिएटर लॉगिन",
+    "userBadge": "यूज़र लॉगिन",
+    "email": "ईमेल",
+    "password": "पासवर्ड",
+    "signIn": "साइन इन",
+    "signingIn": "साइन इन हो रहा है…",
+    "continueWithGoogle": "Google से जारी रखें",
+    "noAccount": "खाता नहीं है?",
+    "createOne": "एक बनाएँ",
+    "createAccount": "खाता बनाएँ",
+    "displayName": "प्रदर्शित नाम",
+    "username": "यूज़रनेम",
+    "alreadyHaveAccount": "पहले से खाता है?",
+    "signInLink": "साइन इन",
+    "registerCreator": "क्रिएटर के रूप में जुड़ें",
+    "registerUser": "फैन के रूप में जुड़ें"
+  },
+  "nav": {
+    "user": {
+      "home": "होम",
+      "subscriptions": "सदस्यताएँ",
+      "live": "लाइव",
+      "billing": "बिलिंग",
+      "profile": "प्रोफ़ाइल",
+      "settings": "सेटिंग्स"
+    },
+    "creator": {
+      "dashboard": "डैशबोर्ड",
+      "create": "बनाएँ",
+      "content": "कंटेंट",
+      "stories": "स्टोरीज़",
+      "highlights": "हाइलाइट्स",
+      "liveEvents": "लाइव इवेंट्स",
+      "messages": "संदेश",
+      "calls": "कॉल",
+      "subscribers": "सब्सक्राइबर",
+      "monetization": "मोनेटाइज़ेशन",
+      "analytics": "एनालिटिक्स",
+      "revenue": "आय",
+      "socialLinks": "सोशल लिंक",
+      "settings": "सेटिंग्स"
+    }
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "preferences": "वरीयताएँ",
+    "fanSubtitle": "अपना फैन खाता, गोपनीयता और बिलिंग प्रबंधित करें।",
+    "backToProfile": "प्रोफ़ाइल पर वापस",
+    "languageHint": "LinkMe इंटरफ़ेस की भाषा चुनें।",
+    "account": "खाता",
+    "accountDesc": "यूज़रनेम, पासवर्ड और प्रोफ़ाइल फ़ोटो अपडेट करें।",
+    "privacy": "गोपनीयता",
+    "privacyDesc": "नियंत्रित करें कि आपको कौन ढूँढ और संदेश भेज सकता है।",
+    "billing": "बिलिंग",
+    "billingDesc": "वॉलेट बैलेंस, भुगतान और बिल।",
+    "notifications": "सूचनाएँ",
+    "notificationsDesc": "कौन-सी गतिविधि सूचनाएँ मिलें, चुनें।",
+    "creatorTitle": "प्रोफ़ाइल और सेटिंग्स",
+    "creatorSubtitle": "सार्वजनिक प्रोफ़ाइल, दिखावट और खाता वरीयताएँ।",
+    "languageSection": "भाषा",
+    "languageSectionDesc": "क्रिएटर स्टूडियो और फैन व्यू के लिए ऐप भाषा।"
+  }
+}

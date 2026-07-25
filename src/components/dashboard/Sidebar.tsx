@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
   CreditCard,
@@ -19,7 +20,7 @@ import { usePublicCreatorsPool } from '@/lib/hooks/use-shared-queries'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
-  label: string
+  key: 'home' | 'subscriptions' | 'live' | 'billing' | 'profile' | 'settings'
   href: string
   icon: LucideIcon
   exact?: boolean
@@ -27,12 +28,12 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Home', href: '/user', icon: Home, exact: true },
-  { label: 'Subscriptions', href: '/user/subscriptions', icon: CreditCard },
-  { label: 'Live', href: '/user/live', icon: Radio },
-  { label: 'Billing', href: '/user/wallet', icon: Wallet },
-  { label: 'Profile', href: '/user/profile', icon: UserRound },
-  { label: 'Settings', href: '/user/settings', icon: Settings },
+  { key: 'home', href: '/user', icon: Home, exact: true },
+  { key: 'subscriptions', href: '/user/subscriptions', icon: CreditCard },
+  { key: 'live', href: '/user/live', icon: Radio },
+  { key: 'billing', href: '/user/wallet', icon: Wallet },
+  { key: 'profile', href: '/user/profile', icon: UserRound },
+  { key: 'settings', href: '/user/settings', icon: Settings },
 ]
 
 function isActive(pathname: string, item: NavItem) {
@@ -45,6 +46,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ className }: SidebarProps) {
+  const t = useTranslations('nav.user')
+  const tc = useTranslations('common')
   const pathname = usePathname()
   const prefersReducedMotion = useReducedMotion()
   const { data: creators = [], isLoading: creatorsLoading } =
@@ -67,13 +70,13 @@ export function Sidebar({ className }: SidebarProps) {
           <Logo markSize="md" />
         </Link>
         <p className="mt-3 text-[11px] font-semibold tracking-[0.16em] text-white/30 uppercase">
-          For you
+          {tc('forYou')}
         </p>
       </div>
 
       <nav
         className="flex flex-col gap-0.5 overflow-y-auto px-3 pb-2"
-        aria-label="Main"
+        aria-label={tc('mainNav')}
       >
         {NAV_ITEMS.map((item, index) => {
           const active = isActive(pathname, item)
@@ -113,7 +116,7 @@ export function Sidebar({ className }: SidebarProps) {
                   strokeWidth={active ? 2.25 : 1.75}
                   aria-hidden
                 />
-                <span className="relative z-10 flex-1">{item.label}</span>
+                <span className="relative z-10 flex-1">{t(item.key)}</span>
                 {item.badge ? (
                   <span className="relative z-10 rounded-full border border-amber-300/20 bg-amber-400/10 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-amber-100 uppercase">
                     Soon

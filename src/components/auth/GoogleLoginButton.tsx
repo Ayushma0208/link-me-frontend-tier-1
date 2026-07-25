@@ -13,6 +13,7 @@ interface GoogleLoginButtonProps {
   disabled?: boolean
   onClick?: () => void
   className?: string
+  label?: string
 }
 
 const ringByAccent = {
@@ -27,6 +28,7 @@ export function GoogleLoginButton({
   disabled,
   onClick,
   className,
+  label,
 }: GoogleLoginButtonProps) {
   const prefersReducedMotion = useReducedMotion()
 
@@ -40,6 +42,7 @@ export function GoogleLoginButton({
         onClick={onClick}
         loading={loading}
         disabled={disabled}
+        label={label}
         className={cn(
           'h-[52px] text-[15px]',
           loading && `ring-2 ${ringByAccent[accent]} ring-offset-2 ring-offset-black`,

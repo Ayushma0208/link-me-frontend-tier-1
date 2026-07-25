@@ -1,0 +1,82 @@
+{
+  "common": {
+    "language": "Idioma",
+    "save": "Guardar",
+    "logout": "Cerrar sesión",
+    "back": "Atrás",
+    "loading": "Cargando…",
+    "viewPublicProfile": "Ver perfil público",
+    "creatorStudio": "Estudio del creador",
+    "forYou": "Para ti",
+    "mainNav": "Principal"
+  },
+  "auth": {
+    "welcomeBack": "Bienvenido de nuevo",
+    "welcomeBackCreator": "Bienvenido de nuevo, Creador",
+    "welcomeBackUser": "Bienvenido de nuevo",
+    "continueWhereLeft": "Continúa donde lo dejaste.",
+    "creatorSubtitle": "Gestiona tu audiencia, suscripciones e ingresos.",
+    "userSubtitle": "Descubre nuevos creadores y sigue viendo.",
+    "creatorBadge": "Inicio de sesión de creador",
+    "userBadge": "Inicio de sesión de usuario",
+    "email": "Correo",
+    "password": "Contraseña",
+    "signIn": "Iniciar sesión",
+    "signingIn": "Iniciando sesión…",
+    "continueWithGoogle": "Continuar con Google",
+    "noAccount": "¿No tienes una cuenta?",
+    "createOne": "Crear una",
+    "createAccount": "Crear cuenta",
+    "displayName": "Nombre para mostrar",
+    "username": "Nombre de usuario",
+    "alreadyHaveAccount": "¿Ya tienes una cuenta?",
+    "signInLink": "Iniciar sesión",
+    "registerCreator": "Unirme como creador",
+    "registerUser": "Unirme como fan"
+  },
+  "nav": {
+    "user": {
+      "home": "Inicio",
+      "subscriptions": "Suscripciones",
+      "live": "En vivo",
+      "billing": "Pagos",
+      "profile": "Perfil",
+      "settings": "Ajustes"
+    },
+    "creator": {
+      "dashboard": "Panel",
+      "create": "Crear",
+      "content": "Contenido",
+      "stories": "Stories",
+      "highlights": "Destacados",
+      "liveEvents": "Directos",
+      "messages": "Mensajes",
+      "calls": "Llamadas",
+      "subscribers": "Suscriptores",
+      "monetization": "Monetización",
+      "analytics": "Analíticas",
+      "revenue": "Ingresos",
+      "socialLinks": "Enlaces sociales",
+      "settings": "Ajustes"
+    }
+  },
+  "settings": {
+    "title": "Ajustes",
+    "preferences": "Preferencias",
+    "fanSubtitle": "Gestiona tu cuenta de fan, privacidad y pagos.",
+    "backToProfile": "Volver al perfil",
+    "languageHint": "Elige el idioma de la interfaz de LinkMe.",
+    "account": "Cuenta",
+    "accountDesc": "Actualiza tu nombre de usuario, contraseña y foto.",
+    "privacy": "Privacidad",
+    "privacyDesc": "Controla quién puede encontrarte y enviarte mensajes.",
+    "billing": "Pagos",
+    "billingDesc": "Saldo de la billetera, pagos y facturas.",
+    "notifications": "Notificaciones",
+    "notificationsDesc": "Elige qué alertas de actividad recibir.",
+    "creatorTitle": "Perfil y ajustes",
+    "creatorSubtitle": "Perfil público, apariencia y preferencias de la cuenta.",
+    "languageSection": "Idioma",
+    "languageSectionDesc": "Idioma de la interfaz del Estudio y las vistas de fans."
+  }
+}
