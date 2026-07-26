@@ -26,6 +26,7 @@ interface ConversationRow {
 interface ChatMessage {
   id: string
   senderId: string
+  type?: string
   body?: string | null
   content?: string
   amountCharged?: string | number | null
@@ -209,17 +210,22 @@ export function UserMessages() {
                 {messages.map((m) => {
                   const text = m.body || m.content || ''
                   const charged = Number(m.amountCharged ?? 0)
+                  const isSystem = m.type === 'SYSTEM'
                   return (
                     <div
                       key={m.id}
-                      className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
-                        m.senderId === user?.id
-                          ? 'ml-auto bg-brand-600/30'
-                          : 'bg-surface-overlay'
-                      }`}
+                      className={
+                        isSystem
+                          ? 'mx-auto max-w-[90%] rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-100/90'
+                          : `max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+                              m.senderId === user?.id
+                                ? 'ml-auto bg-brand-600/30'
+                                : 'bg-surface-overlay'
+                            }`
+                      }
                     >
                       {text}
-                      {m.senderId === user?.id && charged > 0 ? (
+                      {!isSystem && m.senderId === user?.id && charged > 0 ? (
                         <p className="mt-1 text-xs text-muted">
                           −{formatCurrency(charged)}
                         </p>
@@ -230,10 +236,15 @@ export function UserMessages() {
               </div>
               {sendError ? (
                 <p className="px-4 pb-2 text-sm text-red-400">
-                  {sendError}{' '}
-                  <Link href="/user/wallet" className="underline">
-                    Top up wallet
-                  </Link>
+                  {sendError}
+                  {/wallet|balance|funds|top\s*up/i.test(sendError) ? (
+                    <>
+                      {' '}
+                      <Link href="/user/wallet" className="underline">
+                        Top up wallet
+                      </Link>
+                    </>
+                  ) : null}
                 </p>
               ) : null}
               <div className="flex gap-2 border-t border-border p-4">

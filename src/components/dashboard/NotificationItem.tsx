@@ -7,6 +7,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import {
   CalendarDays,
   Coffee,
+  Crown,
   Heart,
   ImagePlus,
   MessageCircle,
@@ -50,6 +51,27 @@ const TYPE_META: Record<
     accent: 'text-orange-300',
     iconWrap: 'border-orange-400/30 bg-orange-500/15 text-orange-200',
     glow: 'from-orange-500/20',
+  },
+  vip_granted: {
+    label: 'King',
+    icon: Crown,
+    accent: 'text-amber-200',
+    iconWrap: 'border-amber-400/30 bg-amber-500/15 text-amber-100',
+    glow: 'from-amber-500/20',
+  },
+  vip_expiring: {
+    label: 'Throne',
+    icon: Timer,
+    accent: 'text-amber-300',
+    iconWrap: 'border-amber-400/30 bg-amber-500/15 text-amber-200',
+    glow: 'from-amber-500/20',
+  },
+  vip_expired: {
+    label: 'Expired',
+    icon: Crown,
+    accent: 'text-stone-300',
+    iconWrap: 'border-stone-400/30 bg-stone-500/15 text-stone-200',
+    glow: 'from-stone-500/20',
   },
   creator_live: {
     label: 'Live',

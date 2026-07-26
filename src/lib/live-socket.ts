@@ -6,6 +6,7 @@ export interface LiveChatUser {
   username: string
   name: string
   avatarUrl: string | null
+  vipLevel?: 'KING' | null
 }
 
 export interface LiveChatMessage {
@@ -116,6 +117,20 @@ export interface LiveGiftLeaderboardEntry {
 export interface LiveGiftLeaderboardPayload {
   liveId: string
   entries: LiveGiftLeaderboardEntry[]
+}
+
+export interface LiveCoachTipPayload {
+  liveId: string
+  id: string
+  kind:
+    | 'quiet_chat'
+    | 'gifter_join'
+    | 'viewer_milestone'
+    | 'engagement_drop'
+    | 'vip_hello'
+  title: string
+  body: string
+  createdAt: string
 }
 
 function socketOrigin(): string {

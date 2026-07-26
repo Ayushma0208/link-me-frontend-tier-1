@@ -33,6 +33,12 @@ function mapType(type: string): NotificationType {
       return 'event'
     case 'SUBSCRIPTION_EXPIRING':
       return 'subscription_expiring'
+    case 'VIP_GRANTED':
+      return 'vip_granted'
+    case 'VIP_EXPIRING':
+      return 'vip_expiring'
+    case 'VIP_EXPIRED':
+      return 'vip_expired'
     case 'COFFEE':
       return 'coffee_received'
     case 'LIKE':
