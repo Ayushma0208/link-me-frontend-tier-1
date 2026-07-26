@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Crown } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import {
+  equipEntryEffect,
+  fetchLoyaltyStatus,
+  purchaseEntryEffect,
+  type LoyaltyStatus,
+} from '@/lib/loyalty'
 import { topUpWallet } from '@/lib/razorpay-checkout'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { Button } from '@/components/ui/button'
@@ -130,6 +137,33 @@ export function UserWallet() {
     },
   })
 
+  const { data: loyalty } = useQuery({
+    queryKey: ['loyalty-status'],
+    queryFn: fetchLoyaltyStatus,
+  })
+
+  const [entryFxError, setEntryFxError] = useState<string | null>(null)
+
+  const entryFx = useMutation({
+    mutationFn: async (input: { effectId: string; action: 'buy' | 'equip' }) => {
+      setEntryFxError(null)
+      if (input.action === 'buy') return purchaseEntryEffect(input.effectId)
+      return equipEntryEffect(input.effectId)
+    },
+    onSuccess: async (status: LoyaltyStatus) => {
+      queryClient.setQueryData(['loyalty-status'], status)
+      await queryClient.invalidateQueries({ queryKey: ['wallet-balance'] })
+      await queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] })
+    },
+    onError: (err) => {
+      setEntryFxError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : 'Entry effect update failed'
+      )
+    },
+  })
+
   const topup = useMutation({
     mutationFn: async (amount: number) => {
       setTopupError(null)
@@ -139,6 +173,7 @@ export function UserWallet() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['wallet-balance'] }),
         queryClient.invalidateQueries({ queryKey: ['wallet-transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['loyalty-status'] }),
       ])
     },
     onError: (err) => {
@@ -217,6 +252,127 @@ export function UserWallet() {
           <p className="mt-3 text-sm text-red-400">{topupError}</p>
         ) : null}
       </Card>
+
+      {loyalty ? (
+        <Card className="mb-8 border-amber-400/20 bg-gradient-to-br from-amber-600/15 to-yellow-700/10">
+          <div className="flex items-start gap-3">
+            <span className="flex size-10 items-center justify-center rounded-full bg-amber-400/15 text-amber-200">
+              <Crown className="size-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-amber-100">
+                {loyalty.active ? 'King status' : 'Keep Your Crown'}
+              </p>
+              {loyalty.active ? (
+                <>
+                  <p className="mt-1 text-sm text-amber-50/80">
+                    {loyalty.daysLeft != null
+                      ? `${loyalty.daysLeft} day${loyalty.daysLeft === 1 ? '' : 's'} left`
+                      : 'Active'}
+                    {' · '}
+                    {formatCurrency(loyalty.coinsToMaintain)} more to renew
+                  </p>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-amber-300"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (loyalty.maintainSpend / loyalty.maintainTarget) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-amber-50/80">
+                    Spend {formatCurrency(loyalty.coinsToUnlock)} more to unlock
+                    King (golden name + live entrance)
+                  </p>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-amber-300/80"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          (loyalty.progressSpend / loyalty.unlockTarget) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="mt-5 border-t border-amber-200/10 pt-4">
+                <p className="text-xs font-semibold tracking-wide text-amber-100/70 uppercase">
+                  Entry hype
+                </p>
+                <p className="mt-1 text-xs text-amber-50/60">
+                  Equip a room-wide entrance when you join a live as King
+                </p>
+                <ul className="mt-3 space-y-2">
+                  {(loyalty.effects ?? []).map((fx) => (
+                    <li
+                      key={fx.id}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">
+                          {fx.label}
+                        </p>
+                        <p className="text-[11px] text-muted">
+                          {fx.price <= 0
+                            ? 'Free'
+                            : formatCurrency(fx.price)}
+                          {fx.equipped ? ' · Equipped' : fx.owned ? ' · Owned' : ''}
+                        </p>
+                      </div>
+                      {fx.equipped ? (
+                        <span className="shrink-0 rounded-full bg-amber-300/20 px-2.5 py-1 text-[11px] font-semibold text-amber-100">
+                          Equipped
+                        </span>
+                      ) : fx.owned || fx.price <= 0 ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={entryFx.isPending}
+                          onClick={() =>
+                            entryFx.mutate({
+                              effectId: fx.id,
+                              action: 'equip',
+                            })
+                          }
+                        >
+                          Equip
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={entryFx.isPending}
+                          onClick={() =>
+                            entryFx.mutate({
+                              effectId: fx.id,
+                              action: 'buy',
+                            })
+                          }
+                        >
+                          Buy
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {entryFxError ? (
+                  <p className="mt-2 text-sm text-red-400">{entryFxError}</p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

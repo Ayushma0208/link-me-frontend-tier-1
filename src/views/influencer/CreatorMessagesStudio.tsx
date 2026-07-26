@@ -186,17 +186,20 @@ export function CreatorMessagesStudio() {
                 ) : null}
                 {messages.map((message) => {
                   const mine = message.senderId === user?.id
+                  const isSystem = message.type === 'SYSTEM'
                   return (
                     <div
                       key={message.id}
                       className={cn(
                         'max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm',
-                        mine
-                          ? 'ml-auto rounded-br-md bg-fuchsia-500/25 text-white'
-                          : 'rounded-bl-md bg-white/[0.08] text-white/85'
+                        isSystem
+                          ? 'mx-auto max-w-[90%] border border-amber-400/30 bg-amber-500/10 text-center text-xs text-amber-100/90'
+                          : mine
+                            ? 'ml-auto rounded-br-md bg-fuchsia-500/25 text-white'
+                            : 'rounded-bl-md bg-white/[0.08] text-white/85'
                       )}
                     >
-                      {message.type === 'IMAGE' && message.mediaUrl ? (
+                      {!isSystem && message.type === 'IMAGE' && message.mediaUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={message.mediaUrl}
@@ -204,13 +207,15 @@ export function CreatorMessagesStudio() {
                           className="mb-2 max-h-56 rounded-xl object-cover"
                         />
                       ) : null}
-                      {message.type === 'AUDIO' && message.mediaUrl ? (
+                      {!isSystem && message.type === 'AUDIO' && message.mediaUrl ? (
                         <audio controls src={message.mediaUrl} className="w-full" />
                       ) : null}
                       {message.body || message.content}
-                      <p className="mt-1 text-[10px] text-white/30">
-                        {new Date(message.createdAt).toLocaleString()}
-                      </p>
+                      {!isSystem ? (
+                        <p className="mt-1 text-[10px] text-white/30">
+                          {new Date(message.createdAt).toLocaleString()}
+                        </p>
+                      ) : null}
                     </div>
                   )
                 })}

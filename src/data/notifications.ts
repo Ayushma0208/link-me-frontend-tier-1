@@ -10,6 +10,9 @@ export type NotificationType =
   | 'comment'
   | 'follow'
   | 'event'
+  | 'vip_granted'
+  | 'vip_expiring'
+  | 'vip_expired'
 
 export interface AppNotification {
   id: string
@@ -317,6 +320,7 @@ export const notificationTypeFilters: Array<{
   { id: 'creator_live', label: 'Live' },
   { id: 'event', label: 'Events' },
   { id: 'subscription_expiring', label: 'Subscriptions' },
+  { id: 'vip_expiring', label: 'King VIP' },
   { id: 'coffee_received', label: 'Coffee' },
   { id: 'like', label: 'Likes' },
   { id: 'comment', label: 'Comments' },

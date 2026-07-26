@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import {
+  Crown,
   Gift,
   MessageSquare,
   MessageSquareOff,
@@ -43,6 +44,8 @@ interface LiveChatOverlayProps {
   liveId: string
   emojiPrice: number | null
   isHost: boolean
+  /** While true, buffer incoming messages and skip auto-scroll (VIP entry hype). */
+  hypePaused?: boolean
 }
 
 function messagePreview(msg: LiveChatMessage): string {
@@ -113,6 +116,7 @@ export function LiveChatOverlay({
   liveId,
   emojiPrice,
   isHost,
+  hypePaused = false,
 }: LiveChatOverlayProps) {
   const [messages, setMessages] = useState<LiveChatMessage[]>([])
   const [pinned, setPinned] = useState<LiveChatMessage | null>(null)
@@ -127,6 +131,9 @@ export function LiveChatOverlay({
   const joinedRef = useRef(false)
   const swipeStartRef = useRef<{ x: number; y: number } | null>(null)
   const pendingI18nRef = useRef(new Map<string, LiveMessageI18nPayload>())
+  const hypePausedRef = useRef(hypePaused)
+  hypePausedRef.current = hypePaused
+  const hypeBufferRef = useRef<LiveChatMessage[]>([])
 
   useEffect(() => {
     const socket = connectLiveSocket()
@@ -174,6 +181,12 @@ export function LiveChatOverlay({
             translatedTo: pending.translatedTo,
           }
         : msg
+      if (hypePausedRef.current) {
+        if (!hypeBufferRef.current.some((m) => m.id === next.id)) {
+          hypeBufferRef.current.push(next)
+        }
+        return
+      }
       setMessages((prev) => {
         if (prev.some((m) => m.id === next.id)) return prev
         return [...prev, next].slice(-80)
@@ -244,10 +257,25 @@ export function LiveChatOverlay({
   }, [liveId])
 
   useEffect(() => {
+    if (hypePaused) return
+    const buffered = hypeBufferRef.current
+    if (buffered.length === 0) return
+    hypeBufferRef.current = []
+    setMessages((prev) => {
+      const byId = new Map(prev.map((m) => [m.id, m]))
+      for (const m of buffered) byId.set(m.id, m)
+      return [...byId.values()]
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .slice(-80)
+    })
+  }, [hypePaused])
+
+  useEffect(() => {
+    if (hypePaused) return
     const el = listRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [messages])
+  }, [messages, hypePaused])
 
   function sendText() {
     const body = draft.trim()
@@ -389,8 +417,19 @@ export function LiveChatOverlay({
                     isPinned && 'ring-1 ring-amber-400/40'
                   )}
                 >
-                  <span className="shrink-0 text-[12px] font-bold text-white">
-                    {msg.user.name}
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-bold">
+                    {msg.user.vipLevel === 'KING' ? (
+                      <Crown className="size-3 text-amber-300" aria-hidden />
+                    ) : null}
+                    <span
+                      className={
+                        msg.user.vipLevel === 'KING'
+                          ? 'bg-gradient-to-r from-amber-200 via-yellow-100 to-amber-300 bg-clip-text text-transparent'
+                          : 'text-white'
+                      }
+                    >
+                      {msg.user.name}
+                    </span>
                   </span>
                   {msg.kind === 'EMOJI' ? (
                     <span className="min-w-0 flex-1 text-[20px] leading-none">

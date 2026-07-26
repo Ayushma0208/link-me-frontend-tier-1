@@ -50,12 +50,28 @@ import {
   type IBeautyProcessor,
 } from '@/lib/agora-beauty'
 import {
+  attachAiDenoiserProcessor,
+  bindAiDenoiserOverload,
+  createAiDenoiserProcessor,
+  setAiDenoiserEnabled,
+  teardownAiDenoiserProcessor,
+  type IAIDenoiserProcessor,
+} from '@/lib/agora-ai-denoiser'
+import {
   connectLiveSocket,
   type LiveBrbPayload,
+  type LiveCoachTipPayload,
   type LiveLatencyPayload,
 } from '@/lib/live-socket'
 import { LiveChatOverlay } from '@/components/live/LiveChatOverlay'
 import { FloatingReactions } from '@/components/live/FloatingReactions'
+import {
+  LiveVipEnterOverlay,
+  type VipEnterEffect,
+  type VipEnterPayload,
+  type VipEnterUser,
+} from '@/components/live/LiveVipEnterOverlay'
+import { LiveCoachOverlay } from '@/components/live/LiveCoachOverlay'
 import { LivePollOverlay } from '@/components/live/LivePollOverlay'
 import { LiveMilestoneOverlay } from '@/components/live/LiveMilestoneOverlay'
 import { LiveTopGiftersOverlay } from '@/components/live/LiveTopGiftersOverlay'
@@ -64,6 +80,7 @@ import {
   LiveBeautyControls,
   type BeautyUiState,
 } from '@/components/live/LiveBeautyControls'
+import { LiveNoiseControls } from '@/components/live/LiveNoiseControls'
 import { LiveForensicWatermark } from '@/components/live/LiveForensicWatermark'
 import { LiveVisibleWatermark } from '@/components/live/LiveVisibleWatermark'
 import { useAuthStore } from '@/stores/auth'
@@ -299,6 +316,18 @@ export function LiveRoom({
   const beautyProcessorRef = useRef<IBeautyProcessor | null>(null)
   const beautyUiRef = useRef(beautyUi)
   beautyUiRef.current = beautyUi
+  const [noiseEnabled, setNoiseEnabled] = useState(true)
+  const [noiseOverloaded, setNoiseOverloaded] = useState(false)
+  const [noiseAvailable, setNoiseAvailable] = useState(false)
+  const denoiserProcessorRef = useRef<IAIDenoiserProcessor | null>(null)
+  const noiseEnabledRef = useRef(noiseEnabled)
+  noiseEnabledRef.current = noiseEnabled
+  const [vipEnter, setVipEnter] = useState<VipEnterPayload | null>(null)
+  const [coachTip, setCoachTip] = useState<LiveCoachTipPayload | null>(null)
+  const [chatHypePaused, setChatHypePaused] = useState(false)
+  const vipEnterTimerRef = useRef<number | null>(null)
+  const chatHypeTimerRef = useRef<number | null>(null)
+  const vipAudioRef = useRef<HTMLAudioElement | null>(null)
   const videoRef = useRef<HTMLDivElement>(null)
   const clientRef = useRef<IAgoraRTCClient | null>(null)
   const camRef = useRef<ICameraVideoTrack | null>(null)
@@ -610,6 +639,58 @@ export function LiveRoom({
       })
     }
 
+    const onVipEnter = (payload: {
+      liveId?: string
+      user?: VipEnterUser
+      effect?: VipEnterEffect | null
+    }) => {
+      if (payload.liveId !== liveId || !payload.user) return
+      if (payload.user.vipLevel !== 'KING') return
+      if (vipEnterTimerRef.current != null) {
+        window.clearTimeout(vipEnterTimerRef.current)
+      }
+      if (chatHypeTimerRef.current != null) {
+        window.clearTimeout(chatHypeTimerRef.current)
+      }
+
+      const next: VipEnterPayload = {
+        user: payload.user,
+        effect: payload.effect ?? null,
+      }
+      setVipEnter(next)
+      setChatHypePaused(true)
+      chatHypeTimerRef.current = window.setTimeout(() => {
+        setChatHypePaused(false)
+        chatHypeTimerRef.current = null
+      }, 1500)
+
+      const soundUrl = payload.effect?.soundUrl
+      if (soundUrl) {
+        try {
+          vipAudioRef.current?.pause()
+          const audio = new Audio(soundUrl)
+          audio.volume = 0.7
+          vipAudioRef.current = audio
+          void audio.play().catch(() => {
+            /* autoplay may be blocked */
+          })
+        } catch {
+          /* ignore */
+        }
+      }
+
+      vipEnterTimerRef.current = window.setTimeout(() => {
+        setVipEnter(null)
+        vipEnterTimerRef.current = null
+      }, 2800)
+    }
+
+    const onCoachTip = (payload: LiveCoachTipPayload) => {
+      if (!isHost || payload.liveId !== liveId) return
+      if (!payload.id || !payload.body) return
+      setCoachTip(payload)
+    }
+
     socket.emit('live:join', { liveId })
     socket.on('live:brb', onBrb)
     socket.on('live:latency', onLatency)
@@ -617,14 +698,28 @@ export function LiveRoom({
     socket.on('live:billing-low', onBillingLow)
     socket.on('live:billing-exhausted', onBillingExhausted)
     socket.on('live:raid', onRaid)
+    socket.on('live:vip-enter', onVipEnter)
+    socket.on('live:coach-tip', onCoachTip)
 
     return () => {
+      if (vipEnterTimerRef.current != null) {
+        window.clearTimeout(vipEnterTimerRef.current)
+        vipEnterTimerRef.current = null
+      }
+      if (chatHypeTimerRef.current != null) {
+        window.clearTimeout(chatHypeTimerRef.current)
+        chatHypeTimerRef.current = null
+      }
+      vipAudioRef.current?.pause()
+      vipAudioRef.current = null
       socket.off('live:brb', onBrb)
       socket.off('live:latency', onLatency)
       socket.off('live:billing-tick', onBillingTick)
       socket.off('live:billing-low', onBillingLow)
       socket.off('live:billing-exhausted', onBillingExhausted)
       socket.off('live:raid', onRaid)
+      socket.off('live:vip-enter', onVipEnter)
+      socket.off('live:coach-tip', onCoachTip)
       socket.disconnect()
     }
   }, [isHost, liveId])
@@ -1070,6 +1165,40 @@ export function LiveRoom({
             beautyProcessorRef.current = null
           }
 
+          // Host-only: AI noise suppression on published mic track.
+          try {
+            const processor = createAiDenoiserProcessor()
+            denoiserProcessorRef.current = processor
+            processor.on('pipeerror', () => {
+              try {
+                processor.unpipe()
+              } catch {
+                /* ignore */
+              }
+              try {
+                mic.unpipe()
+                mic.pipe(mic.processorDestination)
+              } catch {
+                /* ignore */
+              }
+              denoiserProcessorRef.current = null
+              setNoiseAvailable(false)
+            })
+            bindAiDenoiserOverload(processor, () => {
+              setNoiseOverloaded(true)
+              setNoiseEnabled(false)
+            })
+            await attachAiDenoiserProcessor(mic, processor)
+            if (!noiseEnabledRef.current) {
+              await setAiDenoiserEnabled(processor, false)
+            }
+            setNoiseAvailable(true)
+          } catch (err) {
+            console.warn('AI noise suppression unavailable', err)
+            denoiserProcessorRef.current = null
+            setNoiseAvailable(false)
+          }
+
           if (videoRef.current) {
             videoRef.current.replaceChildren()
             cam.play(videoRef.current)
@@ -1128,10 +1257,15 @@ export function LiveRoom({
       const cam = camRef.current
       const mic = micRef.current
       const beauty = beautyProcessorRef.current
+      const denoiser = denoiserProcessorRef.current
       beautyProcessorRef.current = null
+      denoiserProcessorRef.current = null
       camRef.current = null
       micRef.current = null
-      void teardownBeautyProcessor(cam, beauty).finally(() => {
+      void Promise.all([
+        teardownBeautyProcessor(cam, beauty),
+        teardownAiDenoiserProcessor(mic, denoiser),
+      ]).finally(() => {
         cam?.close()
         mic?.close()
         void teardownClient(client)
@@ -1159,6 +1293,16 @@ export function LiveRoom({
       /* ignore */
     })
   }, [isHost, beautyUi])
+
+  // Host: sync AI noise suppression toggle to the live processor.
+  useEffect(() => {
+    if (!isHost) return
+    const processor = denoiserProcessorRef.current
+    if (!processor) return
+    void setAiDenoiserEnabled(processor, noiseEnabled).catch(() => {
+      /* ignore */
+    })
+  }, [isHost, noiseEnabled])
 
   // Host: poll Agora local send stats for the stream health dashboard.
   useEffect(() => {
@@ -1634,6 +1778,16 @@ export function LiveRoom({
                 overloaded={beautyOverloaded}
               />
             ) : null}
+            {isHost && !isPaused && noiseAvailable ? (
+              <LiveNoiseControls
+                enabled={noiseEnabled}
+                onEnabledChange={(next) => {
+                  if (next) setNoiseOverloaded(false)
+                  setNoiseEnabled(next)
+                }}
+                overloaded={noiseOverloaded}
+              />
+            ) : null}
             {isHost && !isPaused ? (
               <button
                 type="button"
@@ -1861,10 +2015,16 @@ export function LiveRoom({
               hostToolbarEl={isHost ? goalToolbarEl : null}
             />
             <LiveTopGiftersOverlay liveId={liveId} />
+            <LiveVipEnterOverlay
+              entry={vipEnter}
+              onDismiss={() => setVipEnter(null)}
+            />
+            {isHost ? <LiveCoachOverlay tip={coachTip} /> : null}
             <LiveChatOverlay
               liveId={liveId}
               emojiPrice={emojiPrice}
               isHost={isHost}
+              hypePaused={chatHypePaused}
             />
           </>
         ) : null}

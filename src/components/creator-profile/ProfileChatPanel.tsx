@@ -595,17 +595,20 @@ export function ProfileChatPanel({
                 const mine = m.senderId === user?.id
                 const text = m.body || m.content || ''
                 const charged = Number(m.amountCharged ?? 0)
+                const isSystem = m.type === 'SYSTEM'
                 return (
                   <div
                     key={m.id}
                     className={cn(
                       'max-w-[82%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed',
-                      mine
-                        ? 'ml-auto rounded-br-md bg-sky-500 text-white'
-                        : 'rounded-bl-md bg-white/[0.08] text-white/90'
+                      isSystem
+                        ? 'mx-auto max-w-[92%] border border-amber-400/30 bg-amber-500/10 text-center text-[12px] text-amber-100/90'
+                        : mine
+                          ? 'ml-auto rounded-br-md bg-sky-500 text-white'
+                          : 'rounded-bl-md bg-white/[0.08] text-white/90'
                     )}
                   >
-                    {m.type === 'IMAGE' && m.mediaUrl ? (
+                    {!isSystem && m.type === 'IMAGE' && m.mediaUrl ? (
                       <a
                         href={m.mediaUrl}
                         target="_blank"
@@ -620,7 +623,7 @@ export function ProfileChatPanel({
                         />
                       </a>
                     ) : null}
-                    {m.type === 'AUDIO' && m.mediaUrl ? (
+                    {!isSystem && m.type === 'AUDIO' && m.mediaUrl ? (
                       <audio
                         src={m.mediaUrl}
                         controls
@@ -633,18 +636,20 @@ export function ProfileChatPanel({
                     {text ? (
                       <p
                         className={cn(
-                          (m.type === 'IMAGE' || m.type === 'AUDIO') && 'mt-2'
+                          !isSystem &&
+                            (m.type === 'IMAGE' || m.type === 'AUDIO') &&
+                            'mt-2'
                         )}
                       >
                         {text}
                       </p>
                     ) : null}
-                    {!text && m.mediaKey && !m.mediaUrl ? (
+                    {!isSystem && !text && m.mediaKey && !m.mediaUrl ? (
                       <p className="text-white/60">
                         {m.type === 'AUDIO' ? 'Voice note' : 'Image'}
                       </p>
                     ) : null}
-                    {mine && charged > 0 ? (
+                    {!isSystem && mine && charged > 0 ? (
                       <p className="mt-1 text-[10px] text-white/70">
                         −{formatCurrency(charged)}
                       </p>
