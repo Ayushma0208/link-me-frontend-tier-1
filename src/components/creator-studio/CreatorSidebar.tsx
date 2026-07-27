@@ -24,6 +24,7 @@ import {
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { Logo } from '@/components/layout/Logo'
+import { AccountSwitcher } from '@/components/auth/AccountSwitcher'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 import { useCreatorPageStore } from '@/stores/creator-page'
@@ -116,14 +117,15 @@ export function CreatorSidebar() {
   const pathname = usePathname()
   const prefersReducedMotion = useReducedMotion()
   const user = useAuthStore((s) => s.user)
-  const logout = useAuthStore((s) => s.logout)
+  const signOutCurrent = useAuthStore((s) => s.signOutCurrent)
   const router = useRouter()
   const publicUsername = useCreatorPageStore((s) => s.claimedUsername)
   const username = user?.username || publicUsername || 'creator'
 
-  function handleSignOut() {
-    logout()
-    router.replace('/login?role=creator')
+  async function handleSignOut() {
+    const promoted = await signOutCurrent()
+    if (!promoted) router.replace('/login?role=creator')
+    else router.refresh()
   }
 
   return (
@@ -175,6 +177,7 @@ export function CreatorSidebar() {
         </nav>
 
         <div className="space-y-3 border-t border-white/8 p-4">
+          <AccountSwitcher loginRole="creator" className="w-full [&>button]:w-full" />
           <Link
             href={`/@${username}`}
             className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[12px] font-medium text-white/70 transition-colors hover:text-white"
@@ -184,7 +187,7 @@ export function CreatorSidebar() {
           </Link>
           <button
             type="button"
-            onClick={handleSignOut}
+            onClick={() => void handleSignOut()}
             className="w-full text-left text-[12px] text-white/35 transition-colors hover:text-white/70"
           >
             {tc('logout')}

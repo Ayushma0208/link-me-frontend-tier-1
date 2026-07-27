@@ -55,8 +55,31 @@ async function refreshAccessToken(): Promise<string | null> {
 
     const data = await unwrapJson<{
       tokens: { accessToken: string; refreshToken: string }
+      user?: { id: string }
     }>(res)
     setTokens(data.tokens)
+    try {
+      const { upsertSavedAccount, listSavedAccounts } = await import('@/lib/accounts')
+      const current = listSavedAccounts().find(
+        (a) => a.refreshToken === tokens.refreshToken || a.accessToken === tokens.accessToken
+      )
+      if (current) {
+        upsertSavedAccount(
+          {
+            id: current.userId,
+            email: current.email,
+            name: current.name,
+            username: current.username,
+            role: current.role,
+            avatar: current.avatar,
+            walletBalance: 0,
+          },
+          data.tokens
+        )
+      }
+    } catch {
+      // accounts sync is best-effort
+    }
     return data.tokens.accessToken
   })()
 

@@ -58,6 +58,7 @@ export function AccountSettings() {
 
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState('')
+  const [phone, setPhone] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -79,6 +80,7 @@ export function AccountSettings() {
     if (!user) return
     setDisplayName(user.name ?? '')
     setUsername(user.username ?? '')
+    setPhone(user.phone ?? '')
     setAvatarUrl(user.avatar ?? null)
   }, [user])
 
@@ -114,6 +116,7 @@ export function AccountSettings() {
         displayName?: string
         username?: string
         avatarUrl?: string | null
+        phone?: string | null
       } = {}
 
       if (displayName.trim() && displayName.trim() !== user?.name) {
@@ -124,6 +127,10 @@ export function AccountSettings() {
       }
       if ((avatarUrl ?? null) !== (user?.avatar ?? null)) {
         payload.avatarUrl = avatarUrl
+      }
+      const nextPhone = phone.trim() || null
+      if (nextPhone !== (user?.phone ?? null)) {
+        payload.phone = nextPhone
       }
 
       if (Object.keys(payload).length === 0) {
@@ -290,6 +297,17 @@ export function AccountSettings() {
           disabled
           readOnly
         />
+        <SharedInput
+          label="WhatsApp phone"
+          accent="user"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="+919876543210"
+          autoComplete="tel"
+        />
+        <p className="-mt-3 text-[12px] text-white/35">
+          Used for subscription recovery offers via WhatsApp.
+        </p>
 
         {profileError ? (
           <p className="rounded-2xl border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-[13px] text-red-200">
