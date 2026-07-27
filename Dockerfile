@@ -2,7 +2,8 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/shared/package.json ./packages/shared/
-RUN npm ci
+# lockfile is generated with packageManager npm@11; alpine Node 20 ships npm 10
+RUN npm install -g npm@11.13.0 && npm ci
 
 FROM node:20-alpine AS builder
 WORKDIR /app
