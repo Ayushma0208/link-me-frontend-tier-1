@@ -9,6 +9,8 @@ export interface BackendPublicUser {
   role: string
   status?: string
   avatarUrl?: string | null
+  phone?: string | null
+  instagramScopedId?: string | null
   emailVerifiedAt?: string | null
   locale?: string
   createdAt?: string
@@ -39,6 +41,7 @@ export function mapBackendUser(user: BackendPublicUser): AuthUser {
     username: user.username,
     role: mapRole(user.role),
     avatar: user.avatarUrl ?? null,
+    phone: user.phone ?? null,
     walletBalance: 0,
     locale: user.locale ?? 'en',
   }

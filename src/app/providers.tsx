@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { IncomingCallHost } from '@/components/calls/IncomingCallHost'
 import { NotificationsBootstrap } from '@/components/notifications/NotificationsBootstrap'
 import { LiveToastHost } from '@/components/notifications/LiveToastHost'
+import { AuthHeartbeat } from '@/components/auth/AuthHeartbeat'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthBootstrap>
+        <AuthHeartbeat />
         <NotificationsBootstrap />
         <LiveToastHost />
         <IncomingCallHost />

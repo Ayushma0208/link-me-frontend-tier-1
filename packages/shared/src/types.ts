@@ -32,6 +32,7 @@ export interface AuthUser {
   username: string
   role: UserRole
   avatar?: string | null
+  phone?: string | null
   walletBalance: number
   locale?: string
 }

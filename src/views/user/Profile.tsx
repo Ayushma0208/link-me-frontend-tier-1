@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronRight, LogOut } from 'lucide-react'
 
+import { AccountSwitcher } from '@/components/auth/AccountSwitcher'
 import {
   CreatorChipRow,
   MediaRail,
@@ -26,7 +27,7 @@ import { cn } from '@/lib/utils'
 
 export function UserProfile() {
   const authUser = useAuthStore((s) => s.user)
-  const logout = useAuthStore((s) => s.logout)
+  const signOutCurrent = useAuthStore((s) => s.signOutCurrent)
   const prefersReducedMotion = useReducedMotion()
   const followed = useFollowStore((s) => s.byHandle)
 
@@ -74,7 +75,8 @@ export function UserProfile() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8">
-      <header className="space-y-1">
+      <header className="flex items-start justify-between gap-3 space-y-1">
+        <div>
         <motion.p
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -90,6 +92,8 @@ export function UserProfile() {
         >
           Profile
         </motion.h1>
+        </div>
+        <AccountSwitcher loginRole="user" />
       </header>
 
       <UserProfileHero
@@ -177,8 +181,9 @@ export function UserProfile() {
         <button
           type="button"
           onClick={() => {
-            logout()
-            window.location.href = '/login'
+            void signOutCurrent().then((promoted) => {
+              if (!promoted) window.location.href = '/login'
+            })
           }}
           className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-red-400/20 bg-red-500/10 text-[14px] font-semibold text-red-200 transition hover:bg-red-500/15"
         >

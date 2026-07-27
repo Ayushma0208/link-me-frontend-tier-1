@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import type { AuthUser } from '@link-me/shared'
-import { api, setTokens } from '@/lib/api'
+import { api, getTokens, setTokens } from '@/lib/api'
+import {
+  clearSavedAccounts,
+  getSavedAccount,
+  listSavedAccounts,
+  removeSavedAccount,
+  upsertSavedAccount,
+} from '@/lib/accounts'
 import {
   mapBackendTokens,
   mapBackendUser,
@@ -26,16 +33,23 @@ interface AuthState {
     role: 'creator' | 'user'
   }) => Promise<void>
   logout: () => void
+  logoutAll: () => void
+  switchAccount: (userId: string) => Promise<void>
+  /** Removes active account; returns true if another account was promoted. */
+  signOutCurrent: () => Promise<boolean>
   fetchMe: () => Promise<void>
   setUser: (user: AuthUser | null) => void
 }
 
 async function applyAuthResult(result: BackendAuthResult) {
-  setTokens(mapBackendTokens(result.tokens))
-  return mapBackendUser(result.user)
+  const tokens = mapBackendTokens(result.tokens)
+  setTokens(tokens)
+  const user = mapBackendUser(result.user)
+  upsertSavedAccount(user, tokens)
+  return user
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: true,
 
@@ -94,14 +108,65 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    void get().signOutCurrent()
+  },
+
+  signOutCurrent: async () => {
+    const current = get().user
+    if (current) removeSavedAccount(current.id)
+    const remaining = listSavedAccounts()
+    if (remaining[0]) {
+      setTokens({
+        accessToken: remaining[0].accessToken,
+        refreshToken: remaining[0].refreshToken,
+      })
+      try {
+        const data = await api<{ user: BackendPublicUser }>('/auth/me')
+        const user = mapBackendUser(data.user)
+        const tokens = getTokens()
+        if (tokens) upsertSavedAccount(user, tokens)
+        setLocaleCookie(resolveLocale(user.locale))
+        set({ user, loading: false })
+        return true
+      } catch {
+        clearSavedAccounts()
+        setTokens(null)
+        set({ user: null, loading: false })
+        return false
+      }
+    }
     setTokens(null)
     set({ user: null })
+    return false
+  },
+
+  logoutAll: () => {
+    clearSavedAccounts()
+    setTokens(null)
+    set({ user: null })
+  },
+
+  switchAccount: async (userId: string) => {
+    const account = getSavedAccount(userId)
+    if (!account) throw new Error('Account not found on this device')
+    setTokens({
+      accessToken: account.accessToken,
+      refreshToken: account.refreshToken,
+    })
+    const data = await api<{ user: BackendPublicUser }>('/auth/me')
+    const user = mapBackendUser(data.user)
+    const tokens = getTokens()
+    if (tokens) upsertSavedAccount(user, tokens)
+    setLocaleCookie(resolveLocale(user.locale))
+    set({ user, loading: false })
   },
 
   fetchMe: async () => {
     try {
       const data = await api<{ user: BackendPublicUser }>('/auth/me')
       const user = mapBackendUser(data.user)
+      const tokens = getTokens()
+      if (tokens) upsertSavedAccount(user, tokens)
       setLocaleCookie(resolveLocale(user.locale))
       set({ user, loading: false })
     } catch {
