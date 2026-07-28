@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
@@ -15,8 +15,10 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import { AccountSwitcher } from '@/components/auth/AccountSwitcher'
 import { Logo } from '@/components/layout/Logo'
 import { usePublicCreatorsPool } from '@/lib/hooks/use-shared-queries'
+import { useAuthStore } from '@/stores/auth'
 import { cn } from '@/lib/utils'
 
 interface NavItem {
@@ -49,9 +51,17 @@ export function Sidebar({ className }: SidebarProps) {
   const t = useTranslations('nav.user')
   const tc = useTranslations('common')
   const pathname = usePathname()
+  const router = useRouter()
   const prefersReducedMotion = useReducedMotion()
+  const signOutCurrent = useAuthStore((s) => s.signOutCurrent)
   const { data: creators = [], isLoading: creatorsLoading } =
     usePublicCreatorsPool()
+
+  async function handleSignOut() {
+    const promoted = await signOutCurrent()
+    if (!promoted) router.replace('/login?role=user')
+    else router.refresh()
+  }
 
   return (
     <motion.aside
@@ -167,10 +177,15 @@ export function Sidebar({ className }: SidebarProps) {
         </div>
       </div>
 
-      <div className="border-t border-white/[0.07] p-4">
-        <p className="px-1 text-[11px] tracking-[0.12em] text-white/25 uppercase">
-          LinkMe · Fan
-        </p>
+      <div className="space-y-3 border-t border-white/[0.07] p-4">
+        <AccountSwitcher loginRole="user" className="w-full [&>button]:w-full" />
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          className="w-full text-left text-[12px] text-white/35 transition-colors hover:text-white/70"
+        >
+          {tc('logout')}
+        </button>
       </div>
     </motion.aside>
   )
