@@ -63,8 +63,7 @@ export function SubscriptionModal({
     (post?.price && post.price > 0 ? post.price : null) ||
     creator.postPrice ||
     99
-  // Not subscribed → always offer one-time post unlock when a post is in context.
-  const showPostOption = Boolean(post)
+  const showPostOption = Boolean(post) && target?.mode !== 'subscribe'
   const showSubOption = !alreadySubscribed
 
   useEffect(() => {

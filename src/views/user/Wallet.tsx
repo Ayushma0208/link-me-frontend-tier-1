@@ -39,7 +39,7 @@ interface WalletTx {
   createdAt: string
 }
 
-const QUICK_AMOUNTS = [100, 200, 500, 1000]
+const QUICK_AMOUNTS = [1000, 10_000, 25_000, 50_000]
 
 function localDateKey(value: string) {
   const date = new Date(value)
@@ -117,7 +117,7 @@ function amountPresentation(tx: WalletTx) {
 }
 
 export function UserWallet() {
-  const [topupAmount, setTopupAmount] = useState(100)
+  const [topupAmount, setTopupAmount] = useState(1000)
   const [topupError, setTopupError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
