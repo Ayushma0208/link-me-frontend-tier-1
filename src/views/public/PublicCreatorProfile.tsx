@@ -543,18 +543,7 @@ export function PublicCreatorProfile() {
       return
     }
     if (mode === 'owner') return
-    // Subscribe CTA without a post → attach first locked post so “see only this post” shows.
-    const fallbackLocked =
-      post ??
-      posts.find((p) => p.locked) ??
-      profile.posts.find(
-        (p) =>
-          p.unlockReason === 'ppv' ||
-          p.unlockReason === 'subscription' ||
-          (Boolean(p.price) && p.price > 0)
-      ) ??
-      null
-    setActivePost(fallbackLocked)
+    setActivePost(post ?? null)
     setModalOpen(true)
   }
 
