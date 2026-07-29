@@ -2,9 +2,10 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
-import { Users, DollarSign, CreditCard, TrendingUp } from 'lucide-react'
+import { Users, DollarSign, CreditCard, Bot, UserRound } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { AdminCreator, AdminPlatformStats, AdminRevenue } from '@/types/admin'
+import { isAiCreatorEmail } from '@/types/admin'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
 import { formatCurrency, formatFollowers } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
@@ -28,6 +29,8 @@ type RevenueSummary = {
         username: string
         displayName: string
         avatarUrl: string | null
+        email: string
+        kind: 'ai' | 'human'
       }
     }
   >
@@ -40,7 +43,7 @@ export function AdminDashboard() {
   })
 
   const { data: creators = [] } = useQuery({
-    queryKey: ['admin-creators'],
+    queryKey: ['admin-creators', 'preview'],
     queryFn: () => api<AdminCreator[]>('/admin/creators?limit=20'),
   })
 
@@ -52,13 +55,18 @@ export function AdminDashboard() {
   const statCards = [
     {
       label: 'AI Creators',
-      value: stats?.totalCreators.toLocaleString() ?? '—',
-      icon: Users,
+      value: (stats?.totalAiCreators ?? stats?.totalCreators)?.toLocaleString() ?? '—',
+      icon: Bot,
+    },
+    {
+      label: 'Human Creators',
+      value: stats?.totalHumanCreators?.toLocaleString() ?? '—',
+      icon: UserRound,
     },
     {
       label: 'Fans',
       value: stats?.totalUsers.toLocaleString() ?? '—',
-      icon: TrendingUp,
+      icon: Users,
     },
     {
       label: 'Revenue',
@@ -80,15 +88,15 @@ export function AdminDashboard() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        <p className="text-muted">Platform overview and AI creator revenue</p>
+        <p className="text-white/70">Platform overview and creator revenue</p>
       </div>
 
-      <div className="mb-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {statCards.map((stat) => (
           <Card key={stat.label}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted">{stat.label}</p>
+                <p className="text-sm text-white/55">{stat.label}</p>
                 <p className="mt-1 text-2xl font-bold">{stat.value}</p>
               </div>
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600/20">
@@ -102,37 +110,37 @@ export function AdminDashboard() {
       {revenue ? (
         <div className="mb-8 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
           <Card>
-            <p className="text-sm text-muted">Subscriptions</p>
+            <p className="text-sm text-white/55">Subscriptions</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.subscriptionRevenue))}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-muted">Exclusive (PPV)</p>
+            <p className="text-sm text-white/55">Exclusive (PPV)</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.exclusiveRevenue))}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-muted">Buy me a coffee</p>
+            <p className="text-sm text-white/55">Buy me a coffee</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.coffeeRevenue))}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-muted">Paid messages</p>
+            <p className="text-sm text-white/55">Paid messages</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.messageRevenue))}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-muted">Voice calls</p>
+            <p className="text-sm text-white/55">Voice calls</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.voiceCallRevenue))}
             </p>
           </Card>
           <Card>
-            <p className="text-sm text-muted">Video calls</p>
+            <p className="text-sm text-white/55">Video calls</p>
             <p className="mt-1 text-xl font-bold">
               {formatCurrency(Number(revenue.summary.videoCallRevenue))}
             </p>
@@ -150,8 +158,9 @@ export function AdminDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-muted">
+              <tr className="border-b border-border text-left text-white/55">
                 <th className="pb-3 font-medium">Creator</th>
+                <th className="pb-3 font-medium">Email</th>
                 <th className="pb-3 font-medium">Subs</th>
                 <th className="pb-3 font-medium">Exclusive</th>
                 <th className="pb-3 font-medium">Coffee</th>
@@ -171,8 +180,15 @@ export function AdminDashboard() {
                     >
                       {row.creator.displayName}
                     </Link>
-                    <span className="ml-2 text-muted">@{row.creator.username}</span>
+                    <span className="ml-2 text-white/70">@{row.creator.username}</span>
+                    <Badge
+                      variant={row.creator.kind === 'ai' ? 'brand' : 'default'}
+                      className="ml-2"
+                    >
+                      {row.creator.kind === 'ai' ? 'AI' : 'Human'}
+                    </Badge>
                   </td>
+                  <td className="py-3 text-white/70">{row.creator.email}</td>
                   <td className="py-3">
                     {formatCurrency(Number(row.subscriptionRevenue))}
                   </td>
@@ -198,7 +214,7 @@ export function AdminDashboard() {
               ))}
               {!revenue?.items.length ? (
                 <tr>
-                  <td colSpan={8} className="py-4 text-muted">
+                  <td colSpan={9} className="py-4 text-white/55">
                     No revenue yet.
                   </td>
                 </tr>
@@ -211,35 +227,46 @@ export function AdminDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Creators</CardTitle>
-          <CardDescription>All AI creators on the platform</CardDescription>
+          <CardDescription>AI and human creators on the platform</CardDescription>
         </CardHeader>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-muted">
+              <tr className="border-b border-border text-left text-white/55">
                 <th className="pb-3 font-medium">Name</th>
                 <th className="pb-3 font-medium">Username</th>
+                <th className="pb-3 font-medium">Email</th>
                 <th className="pb-3 font-medium">Followers</th>
+                <th className="pb-3 font-medium">Type</th>
                 <th className="pb-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {creators.map((c) => (
-                <tr key={c.id} className="border-b border-border/50">
-                  <td className="py-3 font-medium">
-                    <Link href={`/admin/influencers/${c.id}`} className="hover:underline">
-                      {c.user.displayName}
-                    </Link>
-                  </td>
-                  <td className="py-3 text-muted">@{c.user.username}</td>
-                  <td className="py-3">{formatFollowers(c.followerCount)}</td>
-                  <td className="py-3">
-                    <Badge variant={c.isVerified ? 'success' : 'default'}>
-                      {c.isVerified ? 'Verified' : 'Pending'}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
+              {creators.map((c) => {
+                const ai = isAiCreatorEmail(c.user.email)
+                return (
+                  <tr key={c.id} className="border-b border-border/50">
+                    <td className="py-3 font-medium">
+                      <Link href={`/admin/influencers/${c.id}`} className="hover:underline">
+                        {c.user.displayName}
+                      </Link>
+                    </td>
+                    <td className="py-3 text-white/70">@{c.user.username}</td>
+                    <td className="py-3 text-white/70">{c.user.email}</td>
+                    <td className="py-3">{formatFollowers(c.followerCount)}</td>
+                    <td className="py-3">
+                      <Badge variant={ai ? 'brand' : 'default'}>
+                        {ai ? 'AI' : 'Human'}
+                      </Badge>
+                    </td>
+                    <td className="py-3">
+                      <Badge variant={c.isVerified ? 'success' : 'default'}>
+                        {c.isVerified ? 'Verified' : 'Pending'}
+                      </Badge>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

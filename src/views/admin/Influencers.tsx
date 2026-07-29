@@ -21,8 +21,8 @@ export function AdminInfluencers() {
   const [error, setError] = useState('')
 
   const { data: creators = [], isLoading } = useQuery({
-    queryKey: ['admin-creators'],
-    queryFn: () => api<AdminCreator[]>('/admin/creators?limit=100'),
+    queryKey: ['admin-creators', 'ai'],
+    queryFn: () => api<AdminCreator[]>('/admin/creators?kind=ai&limit=100'),
   })
 
   const createMutation = useMutation({
@@ -53,8 +53,10 @@ export function AdminInfluencers() {
     <div>
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">AI Creators</h1>
-          <p className="text-muted">Admin-managed personas — create profiles and post as them</p>
+          <h1 className="text-3xl font-bold">AI Influencers</h1>
+          <p className="text-white/70">
+            Admin-managed personas — create profiles and post as them
+          </p>
         </div>
         <Button onClick={() => setOpen((v) => !v)}>
           <Plus className="h-4 w-4" />
@@ -67,7 +69,7 @@ export function AdminInfluencers() {
           <h2 className="text-lg font-semibold">New AI creator</h2>
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block text-sm">
-              <span className="mb-1 block text-muted">Display name</span>
+              <span className="mb-1 block text-white/70">Display name</span>
               <input
                 className="w-full rounded-lg border border-border bg-black/40 px-3 py-2"
                 value={displayName}
@@ -76,7 +78,7 @@ export function AdminInfluencers() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block text-muted">Username</span>
+              <span className="mb-1 block text-white/70">Username</span>
               <input
                 className="w-full rounded-lg border border-border bg-black/40 px-3 py-2"
                 value={username}
@@ -85,7 +87,7 @@ export function AdminInfluencers() {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block text-muted">Monthly price (INR)</span>
+              <span className="mb-1 block text-white/70">Monthly price (INR)</span>
               <input
                 type="number"
                 min={0}
@@ -95,7 +97,7 @@ export function AdminInfluencers() {
               />
             </label>
             <label className="block text-sm md:col-span-2">
-              <span className="mb-1 block text-muted">Bio</span>
+              <span className="mb-1 block text-white/70">Bio</span>
               <textarea
                 className="w-full rounded-lg border border-border bg-black/40 px-3 py-2"
                 rows={2}
@@ -120,9 +122,11 @@ export function AdminInfluencers() {
       ) : null}
 
       <div className="grid gap-4">
-        {isLoading ? <p className="text-muted">Loading…</p> : null}
+        {isLoading ? <p className="text-white/55">Loading…</p> : null}
         {!isLoading && creators.length === 0 ? (
-          <p className="text-muted">No creators yet. Add an AI creator to get started.</p>
+          <p className="text-white/55">
+            No AI influencers yet. Add an AI creator to get started.
+          </p>
         ) : null}
         {creators.map((inf) => (
           <Card key={inf.id} className="flex items-center justify-between gap-4">
@@ -140,15 +144,14 @@ export function AdminInfluencers() {
                   <h3 className="font-semibold">{inf.user.displayName}</h3>
                   {inf.isVerified ? <Badge variant="brand">Verified</Badge> : null}
                 </div>
-                <p className="text-sm text-muted">
-                  @{inf.user.username} · {formatFollowers(inf.followerCount)} followers ·{' '}
-                  {inf.postCount} posts
+                <p className="text-sm text-white/70">
+                  @{inf.user.username} · {formatFollowers(inf.followerCount)}{' '}
+                  followers · {inf.postCount} posts
                 </p>
-                <p className="text-xs text-muted">
+                <p className="text-sm text-white/70">{inf.user.email}</p>
+                <p className="text-xs text-white/55">
                   Monthly:{' '}
-                  {inf.monthlyPlan
-                    ? `₹${inf.monthlyPlan.price}`
-                    : '—'}
+                  {inf.monthlyPlan ? `₹${inf.monthlyPlan.price}` : '—'}
                 </p>
               </div>
             </div>
