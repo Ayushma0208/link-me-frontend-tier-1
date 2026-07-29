@@ -42,7 +42,8 @@ import {
   type StreamQualityPolicy,
 } from '@/lib/live'
 import { LiveRoom } from '@/components/live/LiveRoom'
-import type { AdminCreator, AdminRevenue } from '@/types/admin'
+import type { AdminCreator, AdminCreatorSubscriber, AdminRevenue } from '@/types/admin'
+import { isAiCreatorEmail } from '@/types/admin'
 import { Button } from '@/components/ui/button'
 import { ChatPlanEditor } from '@/components/chat/ChatPlanEditor'
 import {
@@ -255,6 +256,7 @@ export function AdminCreatorDetail() {
   const [eventTicketUrl, setEventTicketUrl] = useState('')
 
   const [liveOpen, setLiveOpen] = useState(false)
+  const [subsOpen, setSubsOpen] = useState(false)
   const [liveTitle, setLiveTitle] = useState('')
   const [liveDesc, setLiveDesc] = useState('')
   const [liveAccess, setLiveAccess] = useState<'FREE' | 'PAID'>('FREE')
@@ -283,6 +285,15 @@ export function AdminCreatorDetail() {
       return res.revenue
     },
     enabled: Boolean(id),
+  })
+
+  const { data: subscribers = [], isLoading: subsLoading } = useQuery({
+    queryKey: ['admin-creator-subscribers', id],
+    queryFn: () =>
+      api<AdminCreatorSubscriber[]>(
+        `/admin/creators/${id}/subscribers?limit=100`
+      ),
+    enabled: Boolean(id) && subsOpen,
   })
 
   const { data: posts = [] } = useQuery({
@@ -754,7 +765,10 @@ export function AdminCreatorDetail() {
     mutationFn: () => api(`/admin/creators/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-creators'] })
-      router.push('/admin/influencers')
+      const email = creator?.user.email
+      router.push(
+        isAiCreatorEmail(email) ? '/admin/influencers' : '/admin/human-influencers'
+      )
     },
   })
 
@@ -772,15 +786,18 @@ export function AdminCreatorDetail() {
   const cover =
     creator.coverImageUrl ||
     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&q=80'
+  const isAi = isAiCreatorEmail(creator.user.email)
+  const backHref = isAi ? '/admin/influencers' : '/admin/human-influencers'
+  const backLabel = isAi ? 'AI Influencers' : 'Human Influencers'
 
   return (
     <div className="mx-auto max-w-3xl pb-16">
       <div className="mb-4 flex items-center justify-between">
         <Link
-          href="/admin/influencers"
-          className="inline-flex items-center gap-1.5 text-sm text-white/50 hover:text-white"
+          href={backHref}
+          className="inline-flex items-center gap-1.5 text-sm text-white/70 hover:text-white"
         >
-          <ArrowLeft className="size-4" /> AI Creators
+          <ArrowLeft className="size-4" /> {backLabel}
         </Link>
         <div className="flex gap-2">
           <Link href={`/${creator.user.username}`}>
@@ -792,7 +809,8 @@ export function AdminCreatorDetail() {
             variant="ghost"
             size="sm"
             onClick={() => {
-              if (confirm('Remove this AI creator?')) removeCreator.mutate()
+              if (confirm(`Remove this ${isAi ? 'AI' : 'human'} influencer?`))
+                removeCreator.mutate()
             }}
           >
             Remove
@@ -857,7 +875,8 @@ export function AdminCreatorDetail() {
             <h1 className="text-xl font-bold tracking-tight text-white">
               {creator.user.displayName}
             </h1>
-            <p className="text-sm text-white/45">@{creator.user.username}</p>
+            <p className="text-sm text-white/70">@{creator.user.username}</p>
+            <p className="text-sm text-white/70">{creator.user.email}</p>
             {creator.bio ? (
               <p className="mt-2 max-w-xl whitespace-pre-wrap text-[14px] leading-relaxed text-white/70">
                 {creator.bio}
@@ -883,14 +902,18 @@ export function AdminCreatorDetail() {
                 Followers
               </p>
             </div>
-            <div>
+            <button
+              type="button"
+              onClick={() => setSubsOpen(true)}
+              className="rounded-xl transition hover:bg-white/5"
+            >
               <p className="text-lg font-bold text-white">
                 {creator.subscriberCount}
               </p>
               <p className="text-[11px] tracking-wide text-white/40 uppercase">
                 Subs
               </p>
-            </div>
+            </button>
           </div>
 
           {/* Earnings */}
@@ -2035,6 +2058,73 @@ export function AdminCreatorDetail() {
           onResume={() => resumeAdminLive(hostLive.id)}
           onSetLatency={(mode) => setLatencyModeAdmin(hostLive.id, mode)}
         />
+      ) : null}
+
+      {/* Subscribers modal */}
+      {subsOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-6">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/75 backdrop-blur-md"
+            onClick={() => setSubsOpen(false)}
+            aria-label="Close"
+          />
+          <div className="relative z-10 max-h-[90vh] w-full max-w-lg overflow-hidden rounded-t-[28px] border border-white/12 bg-[#121218] sm:rounded-[28px]">
+            <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
+              <h2 className="text-lg font-semibold text-white">Subscribers</h2>
+              <button
+                type="button"
+                onClick={() => setSubsOpen(false)}
+                className="rounded-full p-2 text-white/50 hover:bg-white/10"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto p-4">
+              {subsLoading ? (
+                <p className="text-sm text-white/55">Loading…</p>
+              ) : null}
+              {!subsLoading && subscribers.length === 0 ? (
+                <p className="text-sm text-white/55">No active subscribers.</p>
+              ) : null}
+              <ul className="space-y-3">
+                {subscribers.map((sub) => (
+                  <li
+                    key={sub.id}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-white">
+                        {sub.user.displayName}
+                      </p>
+                      <p className="truncate text-sm text-white/70">
+                        @{sub.user.username}
+                      </p>
+                      <p className="truncate text-sm text-white/70">
+                        {sub.user.email}
+                      </p>
+                      <p className="mt-1 text-xs text-white/55">
+                        {sub.plan.name} · {formatCurrency(Number(sub.plan.price))}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <Link
+                        href={`/admin/users/${sub.user.id}`}
+                        className="text-xs font-medium text-sky-400 hover:text-sky-300"
+                      >
+                        View user
+                      </Link>
+                      <p className="mt-1 text-[11px] text-white/55">
+                        Until{' '}
+                        {new Date(sub.currentPeriodEnd).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* Event / ticket modal */}

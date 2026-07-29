@@ -5,12 +5,16 @@ import {
   Settings,
   Video,
   MessageSquare,
+  Bot,
+  UserRound,
 } from 'lucide-react'
 import { PanelLayout } from '@/components/layout/PanelLayout'
 
 const adminNav = [
-  { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-  { label: 'AI Creators', href: '/admin/influencers', icon: Users },
+  { label: 'Dashboard', href: '/admin', icon: LayoutDashboard, exact: true },
+  { label: 'AI Influencers', href: '/admin/influencers', icon: Bot },
+  { label: 'Human Influencers', href: '/admin/human-influencers', icon: UserRound },
+  { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Messages', href: '/admin/messages', icon: MessageSquare },
   { label: 'Subscriptions', href: '/admin/subscriptions', icon: CreditCard },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
@@ -20,7 +24,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <PanelLayout
       title="LinkMe Admin"
-      subtitle="AI Creator Management"
+      subtitle="Influencer & User Management"
       navItems={adminNav}
     >
       <div className="mb-4 flex flex-col gap-2">

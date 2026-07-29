@@ -25,7 +25,7 @@ export function AdminSubscriptions() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold">Subscriptions</h1>
-        <p className="text-muted">Active fan subscriptions across AI creators</p>
+        <p className="text-white/70">Active fan subscriptions across creators</p>
       </div>
 
       <Card>
@@ -43,16 +43,19 @@ export function AdminSubscriptions() {
               <div>
                 <p className="font-medium">
                   {sub.user.displayName}{' '}
-                  <span className="text-muted">→ {sub.creator.displayName}</span>
+                  <span className="text-white/70">→ {sub.creator.displayName}</span>
                 </p>
-                <p className="text-sm text-muted">
+                <p className="text-sm text-white/70">
+                  {sub.user.email}
+                </p>
+                <p className="text-sm text-white/55">
                   {sub.plan.name} · {formatCurrency(Number(sub.plan.price))}/
                   {sub.plan.interval.toLowerCase()}
                 </p>
               </div>
               <div className="text-right">
                 <Badge variant="success">{sub.status}</Badge>
-                <p className="mt-1 text-xs text-muted">
+                <p className="mt-1 text-xs text-white/55">
                   Until {new Date(sub.currentPeriodEnd).toLocaleDateString()}
                 </p>
               </div>
