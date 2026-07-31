@@ -13,6 +13,7 @@ export interface BackendPublicUser {
   instagramScopedId?: string | null
   emailVerifiedAt?: string | null
   locale?: string
+  hasPassword?: boolean
   createdAt?: string
 }
 
@@ -44,6 +45,7 @@ export function mapBackendUser(user: BackendPublicUser): AuthUser {
     phone: user.phone ?? null,
     walletBalance: 0,
     locale: user.locale ?? 'en',
+    hasPassword: user.hasPassword ?? true,
   }
 }
 

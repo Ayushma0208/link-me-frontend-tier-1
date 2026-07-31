@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "पहले से खाता है?",
     "signInLink": "साइन इन",
     "registerCreator": "क्रिएटर के रूप में जुड़ें",
-    "registerUser": "फैन के रूप में जुड़ें"
+    "registerUser": "फैन के रूप में जुड़ें",
+    "forgotPassword": "पासवर्ड भूल गए",
+    "forgotPasswordTitle": "पासवर्ड रीसेट करें",
+    "forgotPasswordSubtitle": "अपना ईमेल दर्ज करें, हम 6 अंकों का कोड भेजेंगे।",
+    "sendCode": "कोड भेजें",
+    "sendingCode": "भेजा जा रहा है…",
+    "codeSent": "यदि उस ईमेल का खाता है, तो रीसेट कोड भेज दिया गया है।",
+    "otpCode": "रीसेट कोड",
+    "newPassword": "नया पासवर्ड",
+    "confirmPassword": "पासवर्ड की पुष्टि करें",
+    "resetPassword": "पासवर्ड अपडेट करें",
+    "resettingPassword": "अपडेट हो रहा है…",
+    "passwordResetSuccess": "पासवर्ड अपडेट हो गया। नए पासवर्ड से साइन इन करें।",
+    "backToSignIn": "साइन इन पर वापस जाएँ",
+    "resendCode": "कोड फिर से भेजें",
+    "passwordsMustMatch": "पासवर्ड मेल नहीं खाते",
+    "passwordMinLength": "पासवर्ड कम से कम 8 अक्षर का होना चाहिए",
+    "passwordNeedLetter": "पासवर्ड में एक अक्षर होना चाहिए",
+    "passwordNeedNumber": "पासवर्ड में एक अंक होना चाहिए",
+    "otpInvalid": "ईमेल से मिला 6 अंकों का कोड दर्ज करें",
+    "requestFailed": "कुछ गलत हुआ। फिर से कोशिश करें।"
   },
   "nav": {
     "user": {

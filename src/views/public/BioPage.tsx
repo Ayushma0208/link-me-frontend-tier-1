@@ -29,7 +29,16 @@ const CallRoom = dynamic(
   { ssr: false }
 )
 
-const RESERVED = new Set(['login', 'register', 'admin', 'influencer', 'user', 'api'])
+const RESERVED = new Set([
+  'login',
+  'register',
+  'signup',
+  'forgot-password',
+  'admin',
+  'influencer',
+  'user',
+  'api',
+])
 
 const socialIcons: Record<string, typeof Share2> = {
   instagram: Share2,

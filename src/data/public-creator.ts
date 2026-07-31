@@ -456,6 +456,7 @@ export const PUBLIC_PROFILE_RESERVED = new Set([
   'login',
   'register',
   'signup',
+  'forgot-password',
   'admin',
   'influencer',
   'user',

@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { cn } from '@/lib/utils'
@@ -21,22 +23,30 @@ const textByAccent = {
 
 export function ForgotPasswordLink({
   accent = 'neutral',
-  href = '/forgot-password',
+  href,
   className,
 }: ForgotPasswordLinkProps) {
+  const t = useTranslations('auth')
+  const searchParams = useSearchParams()
   const prefersReducedMotion = useReducedMotion()
+  const role = searchParams.get('role')
+  const resolvedHref =
+    href ??
+    (role === 'user' || role === 'creator'
+      ? `/forgot-password?role=${role}`
+      : '/forgot-password')
 
   return (
     <motion.div whileHover={prefersReducedMotion ? undefined : { x: 1 }}>
       <Link
-        href={href}
+        href={resolvedHref}
         className={cn(
           'text-[13px] font-medium underline-offset-4 transition-colors hover:underline',
           textByAccent[accent],
           className
         )}
       >
-        Forgot Password
+        {t('forgotPassword')}
       </Link>
     </motion.div>
   )
