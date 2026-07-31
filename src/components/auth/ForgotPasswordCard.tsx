@@ -40,7 +40,10 @@ const buttonByAccent = {
   },
 } as const
 
-function passwordError(password: string, t: (key: string) => string): string | null {
+function passwordError(
+  password: string,
+  t: (key: 'passwordMinLength' | 'passwordNeedLetter' | 'passwordNeedNumber') => string
+): string | null {
   if (password.length < 8) return t('passwordMinLength')
   if (!/[A-Za-z]/.test(password)) return t('passwordNeedLetter')
   if (!/[0-9]/.test(password)) return t('passwordNeedNumber')
