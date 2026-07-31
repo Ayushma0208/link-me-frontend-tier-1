@@ -6,6 +6,10 @@ import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Camera, Loader2 } from 'lucide-react'
 
+import { ActiveSessionsPanel } from '@/components/auth/ActiveSessionsPanel'
+import { ChangeEmailForm } from '@/components/auth/ChangeEmailForm'
+import { ChangePasswordForm } from '@/components/auth/ChangePasswordForm'
+import { DeleteAccountPanel } from '@/components/auth/DeleteAccountPanel'
 import { SharedInput } from '@/components/auth/SharedInput'
 import { api } from '@/lib/api'
 import {
@@ -60,16 +64,9 @@ export function AccountSettings() {
   const [username, setUsername] = useState('')
   const [phone, setPhone] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-
   const [profileError, setProfileError] = useState('')
   const [profileSuccess, setProfileSuccess] = useState('')
-  const [passwordError, setPasswordError] = useState('')
-  const [passwordSuccess, setPasswordSuccess] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
-  const [savingPassword, setSavingPassword] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
   useEffect(() => {
@@ -148,36 +145,6 @@ export function AccountSettings() {
       setProfileError(err instanceof Error ? err.message : 'Could not save account')
     } finally {
       setSavingProfile(false)
-    }
-  }
-
-  async function handleChangePassword(e: React.FormEvent) {
-    e.preventDefault()
-    setPasswordError('')
-    setPasswordSuccess('')
-
-    if (newPassword !== confirmPassword) {
-      setPasswordError('New passwords do not match')
-      return
-    }
-
-    setSavingPassword(true)
-    try {
-      await api('/auth/me/password', {
-        method: 'POST',
-        body: JSON.stringify({
-          currentPassword,
-          newPassword,
-        }),
-      })
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
-      setPasswordSuccess('Password updated.')
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : 'Could not update password')
-    } finally {
-      setSavingPassword(false)
     }
   }
 
@@ -291,13 +258,6 @@ export function AccountSettings() {
           autoComplete="username"
         />
         <SharedInput
-          label="Email"
-          accent="user"
-          value={user?.email ?? ''}
-          disabled
-          readOnly
-        />
-        <SharedInput
           label="WhatsApp phone"
           accent="user"
           value={phone}
@@ -333,68 +293,35 @@ export function AccountSettings() {
         </button>
       </form>
 
-      <form
-        onSubmit={handleChangePassword}
-        className="space-y-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6"
-      >
+      <ChangeEmailForm
+        accent="user"
+        className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6"
+      />
+
+      <ChangePasswordForm
+        accent="user"
+        className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6"
+      />
+
+      <div className="space-y-4 rounded-[28px] border border-white/10 bg-white/[0.03] p-5 sm:p-6">
         <div>
-          <h2 className="text-[16px] font-bold text-white">Password</h2>
+          <h2 className="text-[16px] font-bold text-white">Devices</h2>
           <p className="mt-1 text-[13px] text-white/40">
-            Use at least 8 characters with a letter and a number.
+            Active sessions on your account. Revoke any you do not recognize.
           </p>
         </div>
+        <ActiveSessionsPanel loginHref="/login?role=user" />
+      </div>
 
-        <SharedInput
-          label="Current password"
-          accent="user"
-          type="password"
-          value={currentPassword}
-          onChange={(e) => setCurrentPassword(e.target.value)}
-          autoComplete="current-password"
-          required
-        />
-        <SharedInput
-          label="New password"
-          accent="user"
-          type="password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          autoComplete="new-password"
-          required
-        />
-        <SharedInput
-          label="Confirm new password"
-          accent="user"
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          autoComplete="new-password"
-          required
-        />
-
-        {passwordError ? (
-          <p className="rounded-2xl border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-[13px] text-red-200">
-            {passwordError}
+      <div className="space-y-4 rounded-[28px] border border-red-400/20 bg-red-500/[0.04] p-5 sm:p-6">
+        <div>
+          <h2 className="text-[16px] font-bold text-white">Delete account</h2>
+          <p className="mt-1 text-[13px] text-white/40">
+            Permanently deactivate your Link.me account.
           </p>
-        ) : null}
-        {passwordSuccess ? (
-          <p className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 px-3.5 py-2.5 text-[13px] text-emerald-200">
-            {passwordSuccess}
-          </p>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={savingPassword}
-          className={cn(
-            'flex h-12 w-full items-center justify-center rounded-full',
-            'border border-white/15 bg-white/[0.06] text-[15px] font-semibold text-white',
-            'transition hover:bg-white/[0.1] disabled:opacity-50'
-          )}
-        >
-          {savingPassword ? 'Updating…' : 'Update password'}
-        </button>
-      </form>
+        </div>
+        <DeleteAccountPanel accent="user" />
+      </div>
     </div>
   )
 }

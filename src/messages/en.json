@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "Already have an account?",
     "signInLink": "Sign in",
     "registerCreator": "Join as a creator",
-    "registerUser": "Join as a fan"
+    "registerUser": "Join as a fan",
+    "forgotPassword": "Forgot Password",
+    "forgotPasswordTitle": "Reset password",
+    "forgotPasswordSubtitle": "Enter your email and we’ll send a 6-digit code.",
+    "sendCode": "Send code",
+    "sendingCode": "Sending…",
+    "codeSent": "If an account exists for that email, a reset code has been sent.",
+    "otpCode": "Reset code",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "resetPassword": "Update password",
+    "resettingPassword": "Updating…",
+    "passwordResetSuccess": "Password updated. You can sign in with your new password.",
+    "backToSignIn": "Back to sign in",
+    "resendCode": "Resend code",
+    "passwordsMustMatch": "Passwords do not match",
+    "passwordMinLength": "Password must be at least 8 characters",
+    "passwordNeedLetter": "Password must include a letter",
+    "passwordNeedNumber": "Password must include a number",
+    "otpInvalid": "Enter the 6-digit code from your email",
+    "requestFailed": "Something went wrong. Try again."
   },
   "nav": {
     "user": {

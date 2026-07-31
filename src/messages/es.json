@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "¿Ya tienes una cuenta?",
     "signInLink": "Iniciar sesión",
     "registerCreator": "Unirme como creador",
-    "registerUser": "Unirme como fan"
+    "registerUser": "Unirme como fan",
+    "forgotPassword": "Olvidé mi contraseña",
+    "forgotPasswordTitle": "Restablecer contraseña",
+    "forgotPasswordSubtitle": "Ingresa tu correo y te enviaremos un código de 6 dígitos.",
+    "sendCode": "Enviar código",
+    "sendingCode": "Enviando…",
+    "codeSent": "Si existe una cuenta con ese correo, se ha enviado un código.",
+    "otpCode": "Código de restablecimiento",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar contraseña",
+    "resetPassword": "Actualizar contraseña",
+    "resettingPassword": "Actualizando…",
+    "passwordResetSuccess": "Contraseña actualizada. Puedes iniciar sesión con la nueva.",
+    "backToSignIn": "Volver a iniciar sesión",
+    "resendCode": "Reenviar código",
+    "passwordsMustMatch": "Las contraseñas no coinciden",
+    "passwordMinLength": "La contraseña debe tener al menos 8 caracteres",
+    "passwordNeedLetter": "La contraseña debe incluir una letra",
+    "passwordNeedNumber": "La contraseña debe incluir un número",
+    "otpInvalid": "Ingresa el código de 6 dígitos de tu correo",
+    "requestFailed": "Algo salió mal. Inténtalo de nuevo."
   },
   "nav": {
     "user": {

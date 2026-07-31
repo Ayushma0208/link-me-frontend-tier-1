@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "Já tem uma conta?",
     "signInLink": "Entrar",
     "registerCreator": "Entrar como criador",
-    "registerUser": "Entrar como fã"
+    "registerUser": "Entrar como fã",
+    "forgotPassword": "Esqueci a senha",
+    "forgotPasswordTitle": "Redefinir senha",
+    "forgotPasswordSubtitle": "Digite seu e-mail e enviaremos um código de 6 dígitos.",
+    "sendCode": "Enviar código",
+    "sendingCode": "Enviando…",
+    "codeSent": "Se existir uma conta com esse e-mail, um código foi enviado.",
+    "otpCode": "Código de redefinição",
+    "newPassword": "Nova senha",
+    "confirmPassword": "Confirmar senha",
+    "resetPassword": "Atualizar senha",
+    "resettingPassword": "Atualizando…",
+    "passwordResetSuccess": "Senha atualizada. Entre com a nova senha.",
+    "backToSignIn": "Voltar ao login",
+    "resendCode": "Reenviar código",
+    "passwordsMustMatch": "As senhas não coincidem",
+    "passwordMinLength": "A senha deve ter pelo menos 8 caracteres",
+    "passwordNeedLetter": "A senha deve incluir uma letra",
+    "passwordNeedNumber": "A senha deve incluir um número",
+    "otpInvalid": "Digite o código de 6 dígitos do seu e-mail",
+    "requestFailed": "Algo deu errado. Tente novamente."
   },
   "nav": {
     "user": {

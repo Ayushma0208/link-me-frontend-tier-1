@@ -14,13 +14,20 @@ import {
   Globe,
   Link2,
   Loader2,
+  Lock,
+  Mail,
   MapPin,
+  MonitorSmartphone,
   Plus,
   Search,
   Trash2,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 
+import { ActiveSessionsPanel } from '@/components/auth/ActiveSessionsPanel'
+import { ChangeEmailForm } from '@/components/auth/ChangeEmailForm'
+import { ChangePasswordForm } from '@/components/auth/ChangePasswordForm'
+import { DeleteAccountPanel } from '@/components/auth/DeleteAccountPanel'
 import { AppearanceControls } from '@/components/creator-studio/AppearanceControls'
 import { CoverMediaPicker } from '@/components/creator-studio/CoverMediaPicker'
 import { ProfileThemePreview } from '@/components/creator-studio/ProfileThemePreview'
@@ -952,6 +959,42 @@ export function ProfileSettingsStudio() {
                 </p>
               </div>
             </div>
+          </StudioGlassCard>
+
+          <StudioGlassCard className="p-5 sm:p-6">
+            <SectionTitle
+              title="Email"
+              description="Change the email on your account"
+              icon={Mail}
+            />
+            <ChangeEmailForm accent="creator" showHeader={false} />
+          </StudioGlassCard>
+
+          <StudioGlassCard className="p-5 sm:p-6">
+            <SectionTitle
+              title="Password"
+              description="Use at least 8 characters with a letter and a number"
+              icon={Lock}
+            />
+            <ChangePasswordForm accent="creator" showHeader={false} />
+          </StudioGlassCard>
+
+          <StudioGlassCard className="p-5 sm:p-6">
+            <SectionTitle
+              title="Devices"
+              description="Active sessions on your account"
+              icon={MonitorSmartphone}
+            />
+            <ActiveSessionsPanel loginHref="/login?role=creator" />
+          </StudioGlassCard>
+
+          <StudioGlassCard className="p-5 sm:p-6">
+            <SectionTitle
+              title="Delete account"
+              description="Deactivate your creator account"
+              icon={Trash2}
+            />
+            <DeleteAccountPanel accent="creator" />
           </StudioGlassCard>
         </div>
 

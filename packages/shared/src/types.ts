@@ -35,6 +35,7 @@ export interface AuthUser {
   phone?: string | null
   walletBalance: number
   locale?: string
+  hasPassword?: boolean
 }
 
 export interface SocialLinkDto {

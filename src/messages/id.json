@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "Sudah punya akun?",
     "signInLink": "Masuk",
     "registerCreator": "Gabung sebagai kreator",
-    "registerUser": "Gabung sebagai penggemar"
+    "registerUser": "Gabung sebagai penggemar",
+    "forgotPassword": "Lupa kata sandi",
+    "forgotPasswordTitle": "Atur ulang kata sandi",
+    "forgotPasswordSubtitle": "Masukkan email Anda dan kami akan mengirim kode 6 digit.",
+    "sendCode": "Kirim kode",
+    "sendingCode": "Mengirim…",
+    "codeSent": "Jika akun dengan email itu ada, kode reset telah dikirim.",
+    "otpCode": "Kode reset",
+    "newPassword": "Kata sandi baru",
+    "confirmPassword": "Konfirmasi kata sandi",
+    "resetPassword": "Perbarui kata sandi",
+    "resettingPassword": "Memperbarui…",
+    "passwordResetSuccess": "Kata sandi diperbarui. Masuk dengan kata sandi baru.",
+    "backToSignIn": "Kembali ke masuk",
+    "resendCode": "Kirim ulang kode",
+    "passwordsMustMatch": "Kata sandi tidak cocok",
+    "passwordMinLength": "Kata sandi minimal 8 karakter",
+    "passwordNeedLetter": "Kata sandi harus berisi huruf",
+    "passwordNeedNumber": "Kata sandi harus berisi angka",
+    "otpInvalid": "Masukkan kode 6 digit dari email Anda",
+    "requestFailed": "Terjadi kesalahan. Coba lagi."
   },
   "nav": {
     "user": {

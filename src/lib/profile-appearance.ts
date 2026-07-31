@@ -68,6 +68,7 @@ export const RESERVED_PUBLIC_URLS = new Set([
   'login',
   'signup',
   'register',
+  'forgot-password',
   'admin',
   'user',
   'influencer',

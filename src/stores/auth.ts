@@ -34,6 +34,7 @@ interface AuthState {
   }) => Promise<void>
   logout: () => void
   logoutAll: () => void
+  revokeAllDevices: () => Promise<void>
   switchAccount: (userId: string) => Promise<void>
   /** Removes active account; returns true if another account was promoted. */
   signOutCurrent: () => Promise<boolean>
@@ -112,6 +113,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signOutCurrent: async () => {
+    const tokens = getTokens()
+    if (tokens?.refreshToken) {
+      try {
+        await api('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+        })
+      } catch {
+        // best-effort server revoke
+      }
+    }
     const current = get().user
     if (current) removeSavedAccount(current.id)
     const remaining = listSavedAccounts()
@@ -123,8 +135,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         const data = await api<{ user: BackendPublicUser }>('/auth/me')
         const user = mapBackendUser(data.user)
-        const tokens = getTokens()
-        if (tokens) upsertSavedAccount(user, tokens)
+        const nextTokens = getTokens()
+        if (nextTokens) upsertSavedAccount(user, nextTokens)
         setLocaleCookie(resolveLocale(user.locale))
         set({ user, loading: false })
         return true
@@ -141,6 +153,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logoutAll: () => {
+    clearSavedAccounts()
+    setTokens(null)
+    set({ user: null })
+  },
+
+  revokeAllDevices: async () => {
+    try {
+      await api('/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ allDevices: true }),
+      })
+    } catch {
+      // best-effort; still clear local session
+    }
     clearSavedAccounts()
     setTokens(null)
     set({ user: null })

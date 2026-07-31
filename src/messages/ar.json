@@ -32,7 +32,27 @@
     "alreadyHaveAccount": "لديك حساب بالفعل؟",
     "signInLink": "تسجيل الدخول",
     "registerCreator": "انضم كمبدع",
-    "registerUser": "انضم كمتابع"
+    "registerUser": "انضم كمتابع",
+    "forgotPassword": "نسيت كلمة المرور",
+    "forgotPasswordTitle": "إعادة تعيين كلمة المرور",
+    "forgotPasswordSubtitle": "أدخل بريدك وسنرسل رمزًا مكوّنًا من 6 أرقام.",
+    "sendCode": "إرسال الرمز",
+    "sendingCode": "جارٍ الإرسال…",
+    "codeSent": "إذا وُجد حساب بهذا البريد، فقد أُرسل رمز إعادة التعيين.",
+    "otpCode": "رمز إعادة التعيين",
+    "newPassword": "كلمة مرور جديدة",
+    "confirmPassword": "تأكيد كلمة المرور",
+    "resetPassword": "تحديث كلمة المرور",
+    "resettingPassword": "جارٍ التحديث…",
+    "passwordResetSuccess": "تم تحديث كلمة المرور. يمكنك تسجيل الدخول بالكلمة الجديدة.",
+    "backToSignIn": "العودة لتسجيل الدخول",
+    "resendCode": "إعادة إرسال الرمز",
+    "passwordsMustMatch": "كلمتا المرور غير متطابقتين",
+    "passwordMinLength": "يجب أن تتكون كلمة المرور من 8 أحرف على الأقل",
+    "passwordNeedLetter": "يجب أن تتضمن كلمة المرور حرفًا",
+    "passwordNeedNumber": "يجب أن تتضمن كلمة المرور رقمًا",
+    "otpInvalid": "أدخل الرمز المكوّن من 6 أرقام من بريدك",
+    "requestFailed": "حدث خطأ ما. حاول مرة أخرى."
   },
   "nav": {
     "user": {

@@ -1,6 +1,7 @@
 'use client'
 
-import { forwardRef, useId } from 'react'
+import { forwardRef, useId, useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
 
 import { cn } from '@/lib/utils'
@@ -31,6 +32,7 @@ export const SharedInput = forwardRef<HTMLInputElement, SharedInputProps>(
       delay = 0,
       className,
       id: idProp,
+      type,
       ...props
     },
     ref
@@ -38,6 +40,28 @@ export const SharedInput = forwardRef<HTMLInputElement, SharedInputProps>(
     const autoId = useId()
     const id = idProp ?? autoId
     const prefersReducedMotion = useReducedMotion()
+    const [visible, setVisible] = useState(false)
+    const isPassword = type === 'password'
+
+    const input = (
+      <input
+        ref={ref}
+        id={id}
+        type={isPassword ? (visible ? 'text' : 'password') : type}
+        className={cn(
+          'h-12 w-full rounded-2xl border border-white/12 bg-white/[0.06] px-4',
+          'text-[15px] text-white placeholder:text-white/30',
+          'outline-none transition-[border-color,box-shadow,background-color] duration-200',
+          'hover:border-white/20 hover:bg-white/[0.08]',
+          'focus-visible:bg-white/[0.09] focus-visible:ring-4',
+          accentFocus[accent],
+          error && 'border-red-400/50 focus-visible:border-red-400/60 focus-visible:ring-red-400/20',
+          isPassword && 'pr-12',
+          className
+        )}
+        {...props}
+      />
+    )
 
     return (
       <motion.div
@@ -56,21 +80,25 @@ export const SharedInput = forwardRef<HTMLInputElement, SharedInputProps>(
         >
           {label}
         </label>
-        <input
-          ref={ref}
-          id={id}
-          className={cn(
-            'h-12 w-full rounded-2xl border border-white/12 bg-white/[0.06] px-4',
-            'text-[15px] text-white placeholder:text-white/30',
-            'outline-none transition-[border-color,box-shadow,background-color] duration-200',
-            'hover:border-white/20 hover:bg-white/[0.08]',
-            'focus-visible:bg-white/[0.09] focus-visible:ring-4',
-            accentFocus[accent],
-            error && 'border-red-400/50 focus-visible:border-red-400/60 focus-visible:ring-red-400/20',
-            className
-          )}
-          {...props}
-        />
+        {isPassword ? (
+          <div className="relative">
+            {input}
+            <button
+              type="button"
+              onClick={() => setVisible((v) => !v)}
+              aria-label={visible ? 'Hide password' : 'Show password'}
+              className="absolute inset-y-0 right-0 flex items-center px-3.5 text-white/40 transition-colors hover:text-white/70"
+            >
+              {visible ? (
+                <EyeOff className="size-4" aria-hidden />
+              ) : (
+                <Eye className="size-4" aria-hidden />
+              )}
+            </button>
+          </div>
+        ) : (
+          input
+        )}
         {error ? <p className="text-[12px] text-red-300/90">{error}</p> : null}
       </motion.div>
     )
