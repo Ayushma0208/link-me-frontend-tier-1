@@ -7,6 +7,7 @@ import {
   MessageSquare,
   Bot,
   UserRound,
+  ShieldCheck,
 } from 'lucide-react'
 import { PanelLayout } from '@/components/layout/PanelLayout'
 
@@ -14,6 +15,7 @@ const adminNav = [
   { label: 'Dashboard', href: '/admin', icon: LayoutDashboard, exact: true },
   { label: 'AI Influencers', href: '/admin/influencers', icon: Bot },
   { label: 'Human Influencers', href: '/admin/human-influencers', icon: UserRound },
+  { label: 'KYC', href: '/admin/kyc', icon: ShieldCheck },
   { label: 'Users', href: '/admin/users', icon: Users },
   { label: 'Messages', href: '/admin/messages', icon: MessageSquare },
   { label: 'Subscriptions', href: '/admin/subscriptions', icon: CreditCard },

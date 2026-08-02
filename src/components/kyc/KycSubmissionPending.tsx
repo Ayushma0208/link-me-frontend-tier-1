@@ -35,7 +35,7 @@ export function KycSubmissionPending({ status, className }: KycSubmissionPending
       ? status?.rejectionReason ??
         'We could not verify your identity. Please check your documents and try again.'
       : isReview
-        ? 'Your selfie matched your Aadhaar photo, but your application needs a quick manual review before approval.'
+        ? 'Our team will verify your documents manually. We’ll notify you once your creator account is approved.'
         : 'Your documents and selfie are being verified. This usually takes a minute.'
 
   const Icon = isApproved
@@ -82,7 +82,7 @@ export function KycSubmissionPending({ status, className }: KycSubmissionPending
               <p className="text-[13px] font-medium text-white/85">What happens next</p>
               <p className="mt-1 text-[12px] leading-relaxed text-white/45">
                 {isReview
-                  ? 'Our team will review your documents shortly and notify you once your creator account is approved.'
+                  ? 'You do not need to resubmit. Stay tuned — approval usually completes after a short manual check.'
                   : 'We are matching your selfie against your Aadhaar photo. Stay on this page for live status updates.'}
               </p>
             </div>
