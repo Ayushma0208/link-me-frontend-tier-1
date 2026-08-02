@@ -124,6 +124,33 @@ export type AdminCreatorSubscriber = {
   }
 }
 
+export type AdminKycStatus =
+  | 'NOT_SUBMITTED'
+  | 'PROCESSING'
+  | 'APPROVED'
+  | 'REVIEW_REQUIRED'
+  | 'REJECTED'
+
+export type AdminKycApplication = {
+  id: string
+  status: AdminKycStatus
+  submittedAt: string | null
+  matchScore: number | null
+  verifyFlags: string[] | null
+  rejectionReason: string | null
+  user: {
+    id: string
+    email: string
+    displayName: string
+    username: string
+  }
+  documents: {
+    aadhaar: { mediaId: string; url: string }
+    pan: { mediaId: string; url: string }
+    selfie: { mediaId: string; url: string }
+  }
+}
+
 export function isAiCreatorEmail(email: string | null | undefined): boolean {
   return Boolean(email?.toLowerCase().endsWith('@ai.creators.local'))
 }
